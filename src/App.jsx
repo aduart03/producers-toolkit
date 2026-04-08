@@ -1,13 +1,43 @@
 import { useState, useEffect, useRef } from 'react'
-import Anthropic from '@anthropic-ai/sdk'
 import ReactMarkdown from 'react-markdown'
 import MidiWriter from 'midi-writer-js'
 import './App.css'
 
-const client = new Anthropic({
-  apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
-  dangerouslyAllowBrowser: true
-})
+// ─── Secure API call ──────────────────────────────────────────────────────────
+// In development (npm run dev): calls Anthropic SDK directly — key stays on
+//   your machine in .env and is NEVER committed to git.
+// In production (Vercel): calls /api/generate — a serverless function that
+//   keeps the key server-side. The key is NEVER sent to the browser.
+const callAI = async (prompt) => {
+  if (import.meta.env.DEV) {
+    // Local dev only — dynamic import so the SDK is tree-shaken out of the
+    // production bundle entirely.
+    const { default: Anthropic } = await import('@anthropic-ai/sdk')
+    const client = new Anthropic({
+      apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
+      dangerouslyAllowBrowser: true,
+    })
+    const msg = await client.messages.create({
+      model:     'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages:  [{ role: 'user', content: prompt }],
+    })
+    return msg.content[0].text
+  }
+
+  // Production — serverless proxy
+  const res = await fetch('/api/generate', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ prompt }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `Request failed (${res.status})`)
+  }
+  const { text } = await res.json()
+  return text
+}
 
 // ─── Chord voicings ───────────────────────────────────────────────────────────
 const CHORD_VOICINGS = {
@@ -370,15 +400,8 @@ export default function App() {
     setResult('')
     setMidiData(null)
     try {
-      const message = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis })
-        }]
-      })
-      const text   = message.content[0].text
+      const prompt = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis })
+      const text   = await callAI(prompt)
       const parsed = parseMidiLine(text)
       const cleaned = cleanResult(text)
 

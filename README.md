@@ -62,6 +62,8 @@ Create a `.env` file in the project root:
 VITE_ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
+> The `VITE_` prefix is used **for local development only** — it exposes the key to your browser on localhost. This is fine because only you can access localhost. On Vercel (production), the key is stored as `ANTHROPIC_API_KEY` without the prefix and never reaches the browser.
+
 Get your API key at [console.anthropic.com](https://console.anthropic.com).
 
 ### 3. Run locally
@@ -74,7 +76,9 @@ Open [localhost:5173](http://localhost:5173).
 
 ---
 
-## Deploying to Vercel
+## Deploying to Vercel (Secure)
+
+The app uses a **Vercel serverless function** (`/api/generate.js`) as a secure proxy. Your API key lives only on the server — it is never sent to any browser.
 
 ### 1. Push to GitHub
 
@@ -90,21 +94,28 @@ git push
 2. Click **Add New Project** → select your repository
 3. Framework preset: **Vite** (auto-detected)
 4. Under **Environment Variables**, add:
-   - Key: `VITE_ANTHROPIC_API_KEY`
+   - Key: `ANTHROPIC_API_KEY` ← **no VITE_ prefix** (keeps it server-side only)
    - Value: your Anthropic API key
 5. Click **Deploy**
 
-That's it — you'll get a live URL in about a minute.
+Done — you'll have a live URL in about 60 seconds.
+
+### How the security works
+
+| Environment | How the AI call is made | Key location |
+|---|---|---|
+| `npm run dev` (local) | Anthropic SDK directly in browser | Your `.env` file only — never committed |
+| Vercel (production) | Browser → `/api/generate` → Anthropic | Vercel server environment only |
+
+In production, the browser never has access to the key. Anyone inspecting the JavaScript bundle will only find a `fetch('/api/generate', ...)` call — no credentials.
 
 ---
 
 ## API Cost & Public Deployment
 
-The API key is used client-side (browser). This means:
-
-- **You pay for all usage** — anyone using the deployed site uses your key
-- The key is embedded in the JS bundle and visible to anyone who inspects the page
-- **Set a monthly spend limit** in your Anthropic console to cap exposure
+- **You pay for all usage** — anyone on your deployed URL uses your key
+- The key is **server-side only** in production (secure)
+- Set a **monthly spend limit** at `console.anthropic.com/settings/limits` as a safety cap
 
 ### Cost estimate (Haiku model)
 
