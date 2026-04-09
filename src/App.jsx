@@ -378,9 +378,115 @@ Description: ${sampleDesc}`
   return input
 }
 
+// ─── Guide content ────────────────────────────────────────────────────────────
+const GUIDE = [
+  {
+    id: 'start',
+    icon: '🎹',
+    title: 'Start From Nothing',
+    what: "You've got a blank project and no idea where to start. This gives you a BPM, key, chord progression, song structure, and reference tracks.",
+    examples: [
+      'Dark UK garage, late night feel, 130 BPM',
+      'Techy minimal house, hypnotic, 124 BPM',
+      'Speed garage banger, aggressive energy, rolling bassline',
+      'Dreamy deep house, 120 BPM, warm chords',
+    ],
+    tip: 'Pick "Chords" to also get a downloadable MIDI file you can drag straight into FL Studio.',
+  },
+  {
+    id: 'stuck',
+    icon: '🔁',
+    title: 'I Have Something',
+    what: "You've got a loop but you're stuck. Tell me what you have and I'll give you 3 specific directions to move the track forward.",
+    examples: [
+      "4-bar loop with an Em pad and a rolling bassline, don't know what to add next",
+      'I have a rave-y techno loop at 140 BPM, energy feels flat',
+      'Got a vocal chop and kick pattern but no direction yet',
+    ],
+    tip: 'The more detail you give, the better the directions. Mention your BPM, key, what sounds you have, and what feels missing.',
+  },
+  {
+    id: 'lyrics',
+    icon: '✍️',
+    title: 'Lyric Concepts',
+    what: "Raw themes, imagery, and hook fragment ideas to spark your own writing. Not cheesy full lyrics — just the material to write from.",
+    examples: [
+      'Driving through London at 3am, paranoid energy',
+      'The feeling of losing someone slowly, not suddenly',
+      'Late night raving, feeling disconnected from reality',
+      'Ambition and doubt at the same time',
+    ],
+    tip: "This won't write your lyrics for you — it gives you the raw ingredients. Take what resonates and build from there.",
+  },
+  {
+    id: 'sounds',
+    icon: '🎧',
+    title: 'Sound Discovery',
+    what: "Beyond Splice. Find new sample packs, platforms, and producers to sample-hunt from — plus creative ways to flip what you find.",
+    examples: [
+      'I mainly use Splice and keep using the same sounds. I make speed garage',
+      'Looking for raw vinyl-sounding drum breaks',
+      'Need gritty UK vocal samples for garage',
+      'I want unique FX and riser sounds for techno',
+    ],
+    tip: 'Mention your genre and what specifically feels stale — that way the suggestions are targeted, not generic.',
+  },
+  {
+    id: 'mix',
+    icon: '🎚️',
+    title: 'Mix Advice',
+    what: "Surgical mixing tips with exact EQ frequencies, compression settings, and specific plugin recommendations (free ones first).",
+    examples: [
+      'Kick gets buried under the bassline in my speed garage track',
+      'My mix sounds muddy in the low mids',
+      'Snare feels weak and thin on a hi-fi system',
+      'Everything sounds fine in headphones but bad on speakers',
+    ],
+    tip: 'Mention your DAW and the plugins you already have — the advice will be tailored to your setup.',
+  },
+  {
+    id: 'design',
+    icon: '🔊',
+    title: 'Sound Design',
+    what: "Step-by-step patch guides to recreate any sound, with exact synth parameter values, FX chains, and plugin settings.",
+    examples: [
+      'I want a synth like John Summit – Where You Are. Warm, slightly distorted house lead',
+      'That stabby chord sound in UK garage from the early 2000s',
+      'Gritty reese bass for techno, lots of movement',
+      'Wide ethereal pad that evolves slowly',
+    ],
+    tip: 'Select your synth (Serum, Vital, etc.) first — the guide will use that synth\'s exact parameter names.',
+  },
+  {
+    id: 'generate',
+    icon: '🎵',
+    title: 'Generate Track',
+    what: "Creates a full track brief plus an optimised Suno/Udio prompt you can paste directly into those AI music tools.",
+    examples: [
+      'Dark UK garage, 130 BPM, late night paranoid energy, gritty sub bass',
+      'Hypnotic minimal techno, 138 BPM, warehouse feel',
+      'Deep house, slow build, warm chords, jazzy samples',
+    ],
+    tip: 'After generating in Suno/Udio, use the "Stem extraction" section in the result to know which parts to pull into your DAW.',
+  },
+  {
+    id: 'sample',
+    icon: '🎙️',
+    title: 'Analyse Sample',
+    what: "Upload any audio file and get real measurements — peak level, RMS, frequency content, stereo width — then specific mixing advice based on those numbers.",
+    examples: [
+      'Upload a kick that sounds muddy → get exact EQ cuts with Hz and dB values',
+      'Upload a bassline that distorts → get compression settings to tame the peaks',
+      'Upload a pad that sounds thin → get layering and reverb suggestions',
+    ],
+    tip: 'No upload? Just describe the sound in the notes box and you\'ll still get useful advice — the upload just makes it more precise.',
+  },
+]
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [mode, setMode] = useState(null)
+  const [showGuide, setShowGuide] = useState(false)
   const [input, setInput] = useState('')
   const [chordType, setChordType] = useState('Pad')
   const [midiType, setMidiType] = useState('chord')
@@ -539,18 +645,30 @@ export default function App() {
             <h1 className="text-4xl font-bold">Producer's Toolkit</h1>
             <p className="text-gray-400 mt-1">UK Garage · House · Techno · Speed Garage</p>
           </div>
-          <button
-            onClick={() => setShowHistory(h => !h)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
-              showHistory ? 'border-purple-500 bg-purple-500/10 text-purple-300'
-                         : 'border-gray-700 bg-gray-900 hover:border-gray-500 text-gray-300'
-            }`}
-          >
-            📋 History
-            {chordHistory.length > 0 && (
-              <span className="bg-purple-600 text-white text-xs px-1.5 py-0.5 rounded-full">{chordHistory.length}</span>
-            )}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowGuide(g => !g)}
+              title="How to use Producer's Toolkit"
+              className={`w-9 h-9 flex items-center justify-center rounded-xl text-sm font-bold border transition-all ${
+                showGuide ? 'border-purple-500 bg-purple-500/10 text-purple-300'
+                          : 'border-gray-700 bg-gray-900 hover:border-gray-500 text-gray-400'
+              }`}
+            >
+              ?
+            </button>
+            <button
+              onClick={() => setShowHistory(h => !h)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border transition-all ${
+                showHistory ? 'border-purple-500 bg-purple-500/10 text-purple-300'
+                           : 'border-gray-700 bg-gray-900 hover:border-gray-500 text-gray-300'
+              }`}
+            >
+              📋 History
+              {chordHistory.length > 0 && (
+                <span className="bg-purple-600 text-white text-xs px-1.5 py-0.5 rounded-full">{chordHistory.length}</span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* ── History panel ── */}
@@ -919,6 +1037,76 @@ export default function App() {
         )}
 
       </div>
+
+      {/* ── Guide modal ── */}
+      {showGuide && (
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-start justify-end p-4 pt-16"
+          onClick={() => setShowGuide(false)}
+        >
+          <div
+            className="bg-gray-950 border border-gray-700 rounded-2xl w-full max-w-md max-h-[85vh] overflow-y-auto shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="sticky top-0 bg-gray-950 border-b border-gray-800 px-5 py-4 flex items-center justify-between rounded-t-2xl">
+              <div>
+                <h2 className="font-bold text-lg">How to use Producer's Toolkit</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Pick a mode, describe your idea, hit Generate</p>
+              </div>
+              <button
+                onClick={() => setShowGuide(false)}
+                className="text-gray-500 hover:text-white text-xl leading-none transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Intro */}
+            <div className="px-5 py-4 border-b border-gray-800">
+              <p className="text-sm text-gray-400 leading-relaxed">
+                Producer's Toolkit uses AI to give you real, specific production advice — not generic tips.
+                Each mode is designed for a different part of the creative process.
+                You don't need to know music theory. Just describe what you're going for in plain English.
+              </p>
+            </div>
+
+            {/* Mode guides */}
+            <div className="divide-y divide-gray-800">
+              {GUIDE.map(g => (
+                <div key={g.id} className="px-5 py-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg">{g.icon}</span>
+                    <h3 className="font-semibold text-white">{g.title}</h3>
+                  </div>
+                  <p className="text-sm text-gray-400 mb-3 leading-relaxed">{g.what}</p>
+                  <div className="space-y-1.5 mb-3">
+                    <p className="text-xs text-gray-600 uppercase tracking-wide font-medium">Example prompts</p>
+                    {g.examples.map((ex, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="text-purple-500 text-xs mt-0.5 shrink-0">→</span>
+                        <p className="text-xs text-gray-300 italic">"{ex}"</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-gray-900 rounded-lg px-3 py-2 flex items-start gap-2">
+                    <span className="text-yellow-500 text-xs mt-0.5 shrink-0">💡</span>
+                    <p className="text-xs text-gray-400">{g.tip}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-gray-800">
+              <p className="text-xs text-gray-600 text-center">
+                Click anywhere outside to close · Results improve with more detail
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
