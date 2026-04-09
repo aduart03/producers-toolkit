@@ -108,9 +108,7 @@ const MODES = [
   { id: 'design',   label: '🔊 Sound Design',       desc: 'Recreate any sound'        },
   { id: 'generate', label: '🎵 Generate Track',     desc: 'Suno/Udio prompt + brief'  },
   { id: 'sample',   label: '🎙️ Analyze Sample',     desc: 'Upload audio for real analysis' },
-  { id: 'daw',      label: '🖥️ DAW Setup',          desc: 'Gear, plugins & setup for beginners' },
-  { id: 'transition',label: '🔄 DAW Transition',    desc: 'Switch DAWs without losing your mind' },
-  { id: 'dj',       label: '🎛️ DJ Roadmap',         desc: 'Where to start, what to buy, how to learn' },
+  { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -149,7 +147,24 @@ const cleanResult = (text) =>
     .replace(/MIDI:.*BPM:\s*\d+/gi, '')
     .replace(/MELODY:.*BPM:\s*\d+/gi, '')
     .replace(/BASS:.*BPM:\s*\d+/gi, '')
+    .replace(/STAGE\[\d+\]:[^\n]+/g, '')
     .trim()
+
+const parseDJRoadmap = (text) => {
+  const stages = []
+  const regex = /STAGE\[(\d+)\]:\s*([^|]+)\|\s*([^|]+)\|\s*([^|]+)\|\s*(.+)/g
+  let match
+  while ((match = regex.exec(text)) !== null) {
+    stages.push({
+      num: parseInt(match[1]),
+      title: match[2].trim(),
+      timeframe: match[3].trim(),
+      focus: match[4].trim(),
+      gear: match[5].trim(),
+    })
+  }
+  return stages.length >= 2 ? stages : null
+}
 
 // ─── Web Audio analysis ───────────────────────────────────────────────────────
 const analyzeAudioFile = async (file) => {
@@ -275,7 +290,7 @@ Reference the actual numbers in your advice.`
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
-const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis }) => {
+const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode }) => {
   const CHORD_LIST  = 'C Cm D Dm E Em F Fm G Gm A Am Bb Bbm B Bm F#m C#m Ab Eb'
   const MIDI_SUFFIX = `\n\nAt the very end on its own line output EXACTLY:\nMIDI: Em-G-D-A BPM: 140\nOnly use: ${CHORD_LIST}`
 
@@ -384,42 +399,43 @@ Instrument: ${sampleInstrument}
 Description: ${sampleDesc}`
   }
 
-  if (mode === 'daw') return `You are a music production expert helping a complete beginner get set up. 
-  Give them a concrete setup guide based on their situation: ${input}
-  
-  Cover:
-  - DAW recommendation and why (if they haven't chosen one)
-  - Essential plugins to start with (free first, then paid when ready)
-  - Minimum equipment list with budget options (audio interface, headphones, MIDI controller)
-  - How to set up their audio interface and DAW correctly
-  - 3 things to learn first in their chosen DAW
-  - 2-3 YouTube channels or resources to follow
-  Be specific with product names and prices where possible.`
-  
-  if (mode === 'transition') return `You are an expert in musiltiple DAWs helping a producer switch from one DAW to another.
-  Their situation: ${input}
+  if (mode === 'daw' && dawMode === 'setup') return `You are a music production expert helping a complete beginner get set up.
+Give them a concrete setup guide based on their situation: ${input}
 
-  Give them:
-  - A direct mapping of the key concepts between their old and new DAW (e.g. "FL's Piano Roll = Ableton's MIDI clip editor, here's whats different")
-  - The 3 biggest workflow differences to get used to
-  - What will feel worse at first (be honest)
-  - A realistic week-by-week transition plan (don't abandon their old DAW cold turkey)
-  - The best free resources and YouTube channels for their specific transition
-  Be direct and practical - they already know how to produce, they just need to reamp their muscle memory.`
-  
-  if (mode === 'dj') return `You are a DJ and music production expert helping someone get into DJing.
-  Their situation: ${input}
-  They are moving from ${input}.
+Cover:
+- DAW recommendation and why (if they haven't chosen one)
+- Essential plugins to start with (free first, then paid when ready)
+- Minimum equipment list with budget options (audio interface, headphones, MIDI controller)
+- How to set up their audio interface and DAW correctly
+- 3 things to learn first in their chosen DAW
+- 2-3 YouTube channels or resources to follow
+Be specific with product names and prices where possible.`
 
-  Give them:
-  - A clear roadmap broken into stages (beginner → competent → performance-ready)
-  - What to buy at each stage with specific product recommendations and prices (start cheap, upgrade later)
-  - The first 5 skills to focus on in order
-  - How long each stage realistically takes with consistent practice
-  - Whether to learn on CDJs, controllers, or vinyl first (with reasoning)
-  - How to use their production knowledge to their advantage as a DJ
-  - 3 YouTube channels or resources to start with
-  Be honest about the time investment and don't sugarcoat the learning curve.`
+  if (mode === 'daw' && dawMode === 'transition') return `You are an expert in multiple DAWs helping a producer switch from one DAW to another.
+Their situation: ${input}
+
+Give them:
+- A direct mapping of the key concepts between their old and new DAW (e.g. "FL's Piano Roll = Ableton's MIDI clip editor, here's what's different")
+- The 3 biggest workflow differences to get used to
+- What they'll immediately find better
+- What will feel worse at first (be honest)
+- A realistic week-by-week transition plan (don't abandon their old DAW cold turkey)
+- The best free resources and YouTube channels for their specific transition
+Be direct and practical — they already know how to produce, they just need to remap their muscle memory.`
+
+  if (mode === 'dj') return `You are a DJ and music production expert creating a learning roadmap.
+Their situation: ${input}
+
+First write 2-3 sentences of intro advice. Then output EXACTLY this format for 4 stages, no extra text between stages:
+
+STAGE[1]: {short title} | {timeframe} | {what to focus on, 1 sentence} | {specific gear recommendation with price}
+STAGE[2]: {short title} | {timeframe} | {what to focus on, 1 sentence} | {gear upgrade or "keep current setup"}
+STAGE[3]: {short title} | {timeframe} | {what to focus on, 1 sentence} | {gear recommendation}
+STAGE[4]: {short title} | {timeframe} | {what to focus on, 1 sentence} | {gear recommendation}
+
+After the stages, add a "## Key Skills to Learn First" section with 5 ordered skills, and a "## Resources" section with 3 YouTube channels.
+Use their production knowledge as an advantage where relevant.`
+
   return input
 }
 
@@ -532,6 +548,8 @@ const GUIDE = [
 export default function App() {
   const [mode, setMode] = useState(null)
   const [showGuide, setShowGuide] = useState(false)
+  const [dawMode, setDawMode] = useState('setup') // 'setup' | 'transition'
+  const [djRoadmapData, setDjRoadmapData] = useState(null)
   const [input, setInput] = useState('')
   const [chordType, setChordType] = useState('Pad')
   const [midiType, setMidiType] = useState('chord')
@@ -568,7 +586,8 @@ export default function App() {
   // ── Rotate loading messages ──
   useEffect(() => {
     if (loading) {
-      const msgs = LOADING_MSGS[mode] || ['Thinking...']
+      const msgKey = mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode
+      const msgs = LOADING_MSGS[msgKey] || ['Thinking...']
       let i = 0
       setLoadingMsg(msgs[0])
       loadingTimerRef.current = setInterval(() => {
@@ -605,6 +624,7 @@ export default function App() {
     setLoading(true)
     setResult('')
     setMidiData(null)
+    setDjRoadmapData(null)
     setCopied(false)
     let accumulated = ''
     try {
@@ -613,8 +633,10 @@ export default function App() {
         setResult(accumulated)
       })
       const parsed  = parseMidiLine(accumulated)
+      const djStages = parseDJRoadmap(accumulated)
       const cleaned = cleanResult(accumulated)
       setResult(cleaned)
+      if (djStages) setDjRoadmapData(djStages)
       if (parsed) {
         const uri = parsed.type === 'chord'
           ? generateChordMidi(parsed.notes, parsed.bpm)
@@ -644,7 +666,7 @@ export default function App() {
   // ── Initial generate ──
   const handleGenerate = async () => {
     if (!mode) return
-    const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis })
+    const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode })
     const messages = [{ role: 'user', content: prompt }]
     const response = await runGeneration(messages)
     setConversationHistory([
@@ -677,7 +699,7 @@ export default function App() {
   const resetMode = (id) => {
     setMode(id); setInput(''); setResult(''); setMidiData(null)
     setSampleFile(null); setSampleAnalysis(null); setAudioError('')
-    setConversationHistory([]); setFollowUpInput('')
+    setConversationHistory([]); setFollowUpInput(''); setDjRoadmapData(null)
   }
 
   return (
@@ -761,7 +783,7 @@ export default function App() {
         )}
 
         {/* ── Mode grid ── */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="grid grid-cols-2 gap-3 mb-3">
           {MODES.map(m => (
             <button
               key={m.id}
@@ -776,6 +798,24 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        {/* ── DJ Roadmap — full width button ── */}
+        <button
+          onClick={() => resetMode('dj')}
+          className={`w-full p-5 rounded-xl text-left border transition-all mb-6 ${
+            mode === 'dj'
+              ? 'border-purple-500 bg-purple-500/10'
+              : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-semibold text-lg">🎛️ DJ Roadmap</div>
+              <div className="text-sm text-gray-400 mt-0.5">Where to start, what to buy, how to learn — as a visual journey map</div>
+            </div>
+            <div className="text-2xl opacity-30">→</div>
+          </div>
+        </button>
 
         {/* ── Input panel ── */}
         {mode && (
@@ -844,6 +884,35 @@ export default function App() {
                       }`}
                     >{t}</button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* DAW & Learning — sub-mode selector */}
+            {mode === 'daw' && (
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">What do you need?</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setDawMode('setup')}
+                    className={`flex-1 p-3 rounded-xl text-sm border transition-all text-left ${
+                      dawMode === 'setup' ? 'border-purple-500 bg-purple-500/20 text-purple-200'
+                                         : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
+                    }`}
+                  >
+                    <div className="font-semibold">🔰 Setup Guide</div>
+                    <div className="text-xs opacity-70 mt-0.5">Gear, plugins & first steps</div>
+                  </button>
+                  <button
+                    onClick={() => setDawMode('transition')}
+                    className={`flex-1 p-3 rounded-xl text-sm border transition-all text-left ${
+                      dawMode === 'transition' ? 'border-purple-500 bg-purple-500/20 text-purple-200'
+                                              : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
+                    }`}
+                  >
+                    <div className="font-semibold">🔄 DAW Switch</div>
+                    <div className="text-xs opacity-70 mt-0.5">Move from one DAW to another</div>
+                  </button>
                 </div>
               </div>
             )}
@@ -984,8 +1053,8 @@ export default function App() {
                   mode === 'mix'      ? 'e.g. Kick gets lost under the bassline in a speed garage track. FL Studio, Kick2, Serum…' :
                   mode === 'design'   ? 'e.g. I want a synth like John Summit - Where You Are. Warm, slightly distorted house lead.' :
                   mode === 'generate' ? 'e.g. Dark UK garage track, 130 BPM, late night paranoid energy, gritty sub bass…' :
-                  mode === 'daw'      ? 'e.g. Complete beginner, budget around £500, want to make house music, have a laptop...' :
-                  mode === 'transition' ? 'e.g. Been on FL Studio for 3 years, want to move to Ableton Live, I make UK garage...' :
+                  mode === 'daw' && dawMode === 'setup'      ? 'e.g. Complete beginner, budget around £500, want to make house music, have a laptop...' :
+                  mode === 'daw' && dawMode === 'transition' ? 'e.g. Been on FL Studio for 3 years, want to move to Ableton Live, I make UK garage...' :
                   mode === 'dj'         ? 'e.g. I already produce house music, want to learn to DJ my own tracks, budget £300...' :
                   'Tell me more…'
                 }
@@ -1030,6 +1099,50 @@ export default function App() {
           </div>
         )}
 
+        {/* ── DJ Roadmap visual ── */}
+        {djRoadmapData && (
+          <div className="mb-4">
+            <div className="text-xs text-gray-500 uppercase tracking-wider mb-3 px-1">Your DJ Journey</div>
+            {/* Horizontal scroll on mobile, full width on desktop */}
+            <div className="overflow-x-auto pb-2">
+              <div className="flex items-stretch gap-0 min-w-max md:min-w-0 md:grid md:grid-cols-4">
+                {djRoadmapData.map((stage, i) => (
+                  <div key={stage.num} className="flex items-stretch">
+                    {/* Stage card */}
+                    <div className={`relative p-4 rounded-xl border w-56 md:w-auto flex flex-col gap-2 ${
+                      i === 0 ? 'border-green-600 bg-green-950/30' :
+                      i === djRoadmapData.length - 1 ? 'border-purple-500 bg-purple-950/30' :
+                      'border-gray-700 bg-gray-900'
+                    }`}>
+                      {/* Stage number badge */}
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                        i === 0 ? 'bg-green-600 text-white' :
+                        i === djRoadmapData.length - 1 ? 'bg-purple-600 text-white' :
+                        'bg-gray-700 text-gray-300'
+                      }`}>{stage.num}</div>
+                      <div className="font-semibold text-sm text-white">{stage.title}</div>
+                      <div className={`text-xs font-medium px-2 py-0.5 rounded-full self-start ${
+                        i === 0 ? 'bg-green-900/50 text-green-300' :
+                        i === djRoadmapData.length - 1 ? 'bg-purple-900/50 text-purple-300' :
+                        'bg-gray-800 text-gray-400'
+                      }`}>{stage.timeframe}</div>
+                      <p className="text-xs text-gray-400 leading-relaxed flex-1">{stage.focus}</p>
+                      <div className="mt-auto pt-2 border-t border-gray-800">
+                        <div className="text-xs text-gray-600 mb-0.5">Gear</div>
+                        <div className="text-xs text-gray-300">{stage.gear}</div>
+                      </div>
+                    </div>
+                    {/* Arrow connector */}
+                    {i < djRoadmapData.length - 1 && (
+                      <div className="flex items-center px-1 shrink-0 text-gray-600 text-lg">›</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Result ── */}
         {result && (
           <div className="space-y-3">
@@ -1045,11 +1158,11 @@ export default function App() {
             </div>
 
             {/* Follow-up suggestions */}
-            {!loading && mode && FOLLOW_UPS[mode] && (
+            {!loading && mode && (FOLLOW_UPS[mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode]) && (
               <div className="space-y-2">
                 <p className="text-xs text-gray-500 px-1">Follow up:</p>
                 <div className="flex flex-wrap gap-2">
-                  {FOLLOW_UPS[mode].map((suggestion) => (
+                  {(FOLLOW_UPS[mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode] || []).map((suggestion) => (
                     <button
                       key={suggestion}
                       onClick={() => handleFollowUp(suggestion)}
