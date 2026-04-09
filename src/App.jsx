@@ -789,6 +789,8 @@ export default function App() {
               key={m.id}
               onClick={() => resetMode(m.id)}
               className={`p-4 rounded-xl text-left border transition-all ${
+                m.id === 'daw' ? 'col-span-2' : ''
+              } ${
                 mode === m.id ? 'border-purple-500 bg-purple-500/10'
                               : 'border-gray-800 bg-gray-900 hover:border-gray-600'
               }`}
