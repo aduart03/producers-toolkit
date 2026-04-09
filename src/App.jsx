@@ -13,6 +13,9 @@ const LOADING_MSGS = {
   design:   ['Thinking...', 'Designing the patch...', 'Tweaking parameters...', 'Building the FX chain...'],
   generate: ['Thinking...', 'Drafting the brief...', 'Writing prompts...', 'Composing the structure...'],
   sample:   ['Thinking...', 'Reading the waveform...', 'Analysing frequencies...', 'Checking the dynamics...'],
+  daw:      ['Thinking...', 'Checking your budget...', 'Building your setup...', 'Picking the right plugins...'],
+  transition:['Thinking...', 'Mapping the differences...', 'Comparing workflows...', 'Building your guide...'],  
+  dj:       ['Thinking...', 'Building your roadmap...', 'Checking the gear...', 'Mapping the journey...'], 
 }
 
 // ─── Follow-up suggestions per mode ──────────────────────────────────────────
@@ -25,6 +28,9 @@ const FOLLOW_UPS = {
   design:   ['Make it warmer and more vintage', 'How do I add movement to this sound?', 'Give me the FX chain in more detail', 'How do I make it more unique?'],
   generate: ['Make it more minimal and late night', 'Give me a darker version of this', 'What would the breakdown sound like?', 'Generate a Suno prompt for the intro only'],
   sample:   ['What compressor should I use?', 'How do I make it sit better in the mix?', 'Is there a free plugin that can fix this?', 'What should I do with the stereo field?'],
+  daw:      ['What free plugins should I start with?', 'How do I set up my audio interface?', 'What are the best YouTube channels to learn from?', 'How do I organize my project files?'],
+  transition:['Go deeper on the arrangment view differences', 'How does Ableton handle samples vs FL?', 'What are the best Ableton-specific techniques?', 'How long will the transition realistically take?'],
+  dj:       ['What budget controller can I start with?', 'How do I mix in key?','How do I learn to beatmatch?', 'What\'s the best way to practice DJing?','What are the best YouTube channels for DJs?', 'How do I transition from producing to DJing my own music?','How do I build a DJ set?'],
 }
 
 // ─── Streaming API call ───────────────────────────────────────────────────────
@@ -96,12 +102,15 @@ const MIDI_TYPES  = [
 const MODES = [
   { id: 'start',    label: '🎹 Start From Nothing', desc: 'Blank canvas direction'    },
   { id: 'stuck',    label: '🔁 I Have Something',   desc: 'Get unstuck on your loop' },
-  { id: 'lyrics',   label: '✍️ Lyric Concepts',      desc: 'Raw themes, not cheesy AI' },
-  { id: 'sounds',   label: '🎧 Sound Discovery',     desc: 'Beyond Splice'             },
-  { id: 'mix',      label: '🎚️ Mix Advice',           desc: 'Surgical EQ & plugin tips' },
-  { id: 'design',   label: '🔊 Sound Design',         desc: 'Recreate any sound'        },
-  { id: 'generate', label: '🎵 Generate Track',       desc: 'Suno/Udio prompt + brief'  },
-  { id: 'sample',   label: '🎙️ Analyse Sample',       desc: 'Upload audio for real analysis' },
+  { id: 'lyrics',   label: '✍️ Lyric Concepts',     desc: 'Raw themes, not cheesy AI' },
+  { id: 'sounds',   label: '🎧 Sound Discovery',    desc: 'Beyond Splice'             },
+  { id: 'mix',      label: '🎚️ Mix Advice',         desc: 'Surgical EQ & plugin tips' },
+  { id: 'design',   label: '🔊 Sound Design',       desc: 'Recreate any sound'        },
+  { id: 'generate', label: '🎵 Generate Track',     desc: 'Suno/Udio prompt + brief'  },
+  { id: 'sample',   label: '🎙️ Analyze Sample',     desc: 'Upload audio for real analysis' },
+  { id: 'daw',      label: '🖥️ DAW Setup',          desc: 'Gear, plugins & setup for beginners' },
+  { id: 'transition',label: '🔄 DAW Transition',    desc: 'Switch DAWs without losing your mind' },
+  { id: 'dj',       label: '🎛️ DJ Roadmap',         desc: 'Where to start, what to buy, how to learn' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -375,6 +384,42 @@ Instrument: ${sampleInstrument}
 Description: ${sampleDesc}`
   }
 
+  if (mode === 'daw') return `You are a music production expert helping a complete beginner get set up. 
+  Give them a concrete setup guide based on their situation: ${input}
+  
+  Cover:
+  - DAW recommendation and why (if they haven't chosen one)
+  - Essential plugins to start with (free first, then paid when ready)
+  - Minimum equipment list with budget options (audio interface, headphones, MIDI controller)
+  - How to set up their audio interface and DAW correctly
+  - 3 things to learn first in their chosen DAW
+  - 2-3 YouTube channels or resources to follow
+  Be specific with product names and prices where possible.`
+  
+  if (mode === 'transition') return `You are an expert in musiltiple DAWs helping a producer switch from one DAW to another.
+  Their situation: ${input}
+
+  Give them:
+  - A direct mapping of the key concepts between their old and new DAW (e.g. "FL's Piano Roll = Ableton's MIDI clip editor, here's whats different")
+  - The 3 biggest workflow differences to get used to
+  - What will feel worse at first (be honest)
+  - A realistic week-by-week transition plan (don't abandon their old DAW cold turkey)
+  - The best free resources and YouTube channels for their specific transition
+  Be direct and practical - they already know how to produce, they just need to reamp their muscle memory.`
+  
+  if (mode === 'dj') return `You are a DJ and music production expert helping someone get into DJing.
+  Their situation: ${input}
+  They are moving from ${input}.
+
+  Give them:
+  - A clear roadmap broken into stages (beginner → competent → performance-ready)
+  - What to buy at each stage with specific product recommendations and prices (start cheap, upgrade later)
+  - The first 5 skills to focus on in order
+  - How long each stage realistically takes with consistent practice
+  - Whether to learn on CDJs, controllers, or vinyl first (with reasoning)
+  - How to use their production knowledge to their advantage as a DJ
+  - 3 YouTube channels or resources to start with
+  Be honest about the time investment and don't sugarcoat the learning curve.`
   return input
 }
 
@@ -939,6 +984,9 @@ export default function App() {
                   mode === 'mix'      ? 'e.g. Kick gets lost under the bassline in a speed garage track. FL Studio, Kick2, Serum…' :
                   mode === 'design'   ? 'e.g. I want a synth like John Summit - Where You Are. Warm, slightly distorted house lead.' :
                   mode === 'generate' ? 'e.g. Dark UK garage track, 130 BPM, late night paranoid energy, gritty sub bass…' :
+                  mode === 'daw'      ? 'e.g. Complete beginner, budget around £500, want to make house music, have a laptop...' :
+                  mode === 'transition' ? 'e.g. Been on FL Studio for 3 years, want to move to Ableton Live, I make UK garage...' :
+                  mode === 'dj'         ? 'e.g. I already produce house music, want to learn to DJ my own tracks, budget £300...' :
                   'Tell me more…'
                 }
                 rows={4}
