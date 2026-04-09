@@ -3,40 +3,72 @@ import ReactMarkdown from 'react-markdown'
 import MidiWriter from 'midi-writer-js'
 import './App.css'
 
-// ─── Secure API call ──────────────────────────────────────────────────────────
-// In development (npm run dev): calls Anthropic SDK directly — key stays on
-//   your machine in .env and is NEVER committed to git.
-// In production (Vercel): calls /api/generate — a serverless function that
-//   keeps the key server-side. The key is NEVER sent to the browser.
-const callAI = async (prompt) => {
+// ─── Rotating loading messages ───────────────────────────────────────────────
+const LOADING_MSGS = {
+  start:    ['Thinking...', 'Setting the vibe...', 'Building your brief...', 'Finding reference tracks...'],
+  stuck:    ['Thinking...', 'Listening to your idea...', 'Finding directions...', 'Mapping the energy arc...'],
+  lyrics:   ['Thinking...', 'Finding the feeling...', 'Crafting themes...', 'Digging for imagery...'],
+  sounds:   ['Thinking...', 'Digging through crates...', 'Hunting for gems...', 'Checking the archives...'],
+  mix:      ['Thinking...', 'Analysing the mix...', 'Calculating EQ moves...', 'Running the numbers...'],
+  design:   ['Thinking...', 'Designing the patch...', 'Tweaking parameters...', 'Building the FX chain...'],
+  generate: ['Thinking...', 'Drafting the brief...', 'Writing prompts...', 'Composing the structure...'],
+  sample:   ['Thinking...', 'Reading the waveform...', 'Analysing frequencies...', 'Checking the dynamics...'],
+}
+
+// ─── Follow-up suggestions per mode ──────────────────────────────────────────
+const FOLLOW_UPS = {
+  start:    ['Make it darker and more minimal', 'Give me the sound design for the main synth', 'Write lyric concepts for this vibe', 'What\'s a unique element to make it stand out?'],
+  stuck:    ['Go deeper on the first direction', 'How do I build tension before the drop?', 'What should the breakdown sound like?', 'How do I end the track?'],
+  lyrics:   ['Give me darker, more paranoid imagery', 'Make it more introspective and emotional', 'Give me hook fragment ideas for this', 'Which artist\'s style fits this best?'],
+  sounds:   ['Give me more free options only', 'How do I flip these samples creatively?', 'Where do I find vocal samples specifically?', 'What about drum breaks?'],
+  mix:      ['Go deeper on the low end', 'How do I make the mix louder without clipping?', 'What about the stereo width?', 'Give me the mastering chain for this'],
+  design:   ['Make it warmer and more vintage', 'How do I add movement to this sound?', 'Give me the FX chain in more detail', 'How do I make it more unique?'],
+  generate: ['Make it more minimal and late night', 'Give me a darker version of this', 'What would the breakdown sound like?', 'Generate a Suno prompt for the intro only'],
+  sample:   ['What compressor should I use?', 'How do I make it sit better in the mix?', 'Is there a free plugin that can fix this?', 'What should I do with the stereo field?'],
+}
+
+// ─── Streaming API call ───────────────────────────────────────────────────────
+// Dev: streams directly from Anthropic SDK
+// Prod: streams from /api/generate via Server-Sent Events
+// onChunk(text) is called for each token as it arrives
+const callAI = async (messages, onChunk) => {
   if (import.meta.env.DEV) {
-    // Local dev only — dynamic import so the SDK is tree-shaken out of the
-    // production bundle entirely.
     const { default: Anthropic } = await import('@anthropic-ai/sdk')
-    const client = new Anthropic({
-      apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
-      dangerouslyAllowBrowser: true,
-    })
-    const msg = await client.messages.create({
-      model:     'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages:  [{ role: 'user', content: prompt }],
-    })
-    return msg.content[0].text
+    const client = new Anthropic({ apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY, dangerouslyAllowBrowser: true })
+    let full = ''
+    const stream = client.messages.stream({ model: 'claude-haiku-4-5-20251001', max_tokens: 1500, messages })
+    stream.on('text', (t) => { full += t; onChunk(t) })
+    await stream.finalMessage()
+    return full
   }
 
-  // Production — serverless proxy
+  // Production — SSE stream from serverless function
   const res = await fetch('/api/generate', {
-    method:  'POST',
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ prompt }),
+    body: JSON.stringify({ messages }),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.error || `Request failed (${res.status})`)
   }
-  const { text } = await res.json()
-  return text
+  const reader  = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = '', full = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const data = line.slice(6).trim()
+      if (data === '[DONE]') return full
+      try { const { text } = JSON.parse(data); full += text; onChunk(text) } catch {}
+    }
+  }
+  return full
 }
 
 // ─── Chord voicings ───────────────────────────────────────────────────────────
@@ -356,8 +388,14 @@ export default function App() {
   const [selectedSynth, setSelectedSynth] = useState('')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingMsg, setLoadingMsg] = useState('Thinking...')
   const [midiData, setMidiData] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  // Follow-up / conversation
+  const [conversationHistory, setConversationHistory] = useState([])
+  const [followUpInput, setFollowUpInput] = useState('')
 
   // Sample analysis
   const [sampleFile, setSampleFile] = useState(null)
@@ -367,6 +405,7 @@ export default function App() {
   const [sampleInstrument, setSampleInstrument] = useState('Kick')
   const [sampleDesc, setSampleDesc] = useState('')
   const fileInputRef = useRef(null)
+  const loadingTimerRef = useRef(null)
 
   const [chordHistory, setChordHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('chordHistory') || '[]') } catch { return [] }
@@ -374,6 +413,22 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('chordHistory', JSON.stringify(chordHistory))
   }, [chordHistory])
+
+  // ── Rotate loading messages ──
+  useEffect(() => {
+    if (loading) {
+      const msgs = LOADING_MSGS[mode] || ['Thinking...']
+      let i = 0
+      setLoadingMsg(msgs[0])
+      loadingTimerRef.current = setInterval(() => {
+        i = (i + 1) % msgs.length
+        setLoadingMsg(msgs[i])
+      }, 2000)
+    } else {
+      clearInterval(loadingTimerRef.current)
+    }
+    return () => clearInterval(loadingTimerRef.current)
+  }, [loading, mode])
 
   // ── Handle file selection ──
   const handleFileSelect = async (file) => {
@@ -394,17 +449,21 @@ export default function App() {
 
   const midiTypeIcon = { chord: '🎹', melody: '🎵', bass: '🔉' }
 
-  const handleGenerate = async () => {
-    if (!mode) return
+  // ── Core generation (shared by initial + follow-up) ──
+  const runGeneration = async (messages) => {
     setLoading(true)
     setResult('')
     setMidiData(null)
+    setCopied(false)
+    let accumulated = ''
     try {
-      const prompt = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis })
-      const text   = await callAI(prompt)
-      const parsed = parseMidiLine(text)
-      const cleaned = cleanResult(text)
-
+      await callAI(messages, (chunk) => {
+        accumulated += chunk
+        setResult(accumulated)
+      })
+      const parsed  = parseMidiLine(accumulated)
+      const cleaned = cleanResult(accumulated)
+      setResult(cleaned)
       if (parsed) {
         const uri = parsed.type === 'chord'
           ? generateChordMidi(parsed.notes, parsed.bpm)
@@ -421,11 +480,43 @@ export default function App() {
           response: cleaned,
         }, ...prev].slice(0, 100))
       }
-      setResult(cleaned)
+      return cleaned
     } catch (err) {
-      setResult('Error: ' + err.message)
+      const msg = 'Error: ' + err.message
+      setResult(msg)
+      return msg
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
+  }
+
+  // ── Initial generate ──
+  const handleGenerate = async () => {
+    if (!mode) return
+    const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis })
+    const messages = [{ role: 'user', content: prompt }]
+    const response = await runGeneration(messages)
+    setConversationHistory([
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: response },
+    ])
+  }
+
+  // ── Follow-up (keeps conversation context) ──
+  const handleFollowUp = async (text) => {
+    if (!text.trim()) return
+    setFollowUpInput('')
+    const newHistory = [...conversationHistory, { role: 'user', content: text }]
+    const response   = await runGeneration(newHistory)
+    setConversationHistory([...newHistory, { role: 'assistant', content: response }])
+  }
+
+  // ── Copy result to clipboard ──
+  const handleCopy = () => {
+    navigator.clipboard.writeText(result).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   const canGenerate = mode === 'sample'
@@ -435,6 +526,7 @@ export default function App() {
   const resetMode = (id) => {
     setMode(id); setInput(''); setResult(''); setMidiData(null)
     setSampleFile(null); setSampleAnalysis(null); setAudioError('')
+    setConversationHistory([]); setFollowUpInput('')
   }
 
   return (
@@ -477,7 +569,14 @@ export default function App() {
                 {chordHistory.map(entry => (
                   <button
                     key={entry.id}
-                    onClick={() => { setResult(entry.response); setShowHistory(false) }}
+                    onClick={() => {
+                      setResult(entry.response)
+                      setConversationHistory([
+                        { role: 'user', content: `History restore: ${entry.label}` },
+                        { role: 'assistant', content: entry.response },
+                      ])
+                      setShowHistory(false)
+                    }}
                     className="w-full bg-gray-800 hover:bg-gray-700 rounded-lg p-3 text-left transition-colors group"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -741,7 +840,7 @@ export default function App() {
               disabled={!canGenerate || loading}
               className="px-6 py-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl font-semibold transition-all"
             >
-              {loading ? 'Thinking…' : 'Generate'}
+              {loading ? loadingMsg : 'Generate'}
             </button>
           </div>
         )}
@@ -767,8 +866,55 @@ export default function App() {
 
         {/* ── Result ── */}
         {result && (
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 prose prose-invert max-w-none">
-            <ReactMarkdown>{result}</ReactMarkdown>
+          <div className="space-y-3">
+            {/* Result box with copy button */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 prose prose-invert max-w-none relative">
+              <button
+                onClick={handleCopy}
+                className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-400 hover:text-white transition-all border border-gray-700"
+              >
+                {copied ? '✅ Copied!' : '📋 Copy'}
+              </button>
+              <ReactMarkdown>{result}</ReactMarkdown>
+            </div>
+
+            {/* Follow-up suggestions */}
+            {!loading && mode && FOLLOW_UPS[mode] && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 px-1">Follow up:</p>
+                <div className="flex flex-wrap gap-2">
+                  {FOLLOW_UPS[mode].map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => handleFollowUp(suggestion)}
+                      className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 hover:border-purple-500 rounded-lg text-sm text-gray-300 hover:text-white transition-all text-left"
+                    >
+                      {suggestion} →
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Custom follow-up input */}
+            {!loading && conversationHistory.length > 0 && (
+              <div className="flex gap-2">
+                <input
+                  value={followUpInput}
+                  onChange={e => setFollowUpInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleFollowUp(followUpInput)}
+                  placeholder="Ask a follow-up... change anything, go deeper, modify the vibe"
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
+                />
+                <button
+                  onClick={() => handleFollowUp(followUpInput)}
+                  disabled={!followUpInput.trim()}
+                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-sm font-semibold transition-all"
+                >
+                  Send
+                </button>
+              </div>
+            )}
           </div>
         )}
 
