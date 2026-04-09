@@ -895,7 +895,7 @@ export default function App() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setDawMode('setup')}
-                    className={`w-full p-5 rounded-xl text-left border transition-all text-left ${
+                    className={`flex-1 p-3 rounded-xl text-sm border transition-all text-left ${
                       dawMode === 'setup' ? 'border-purple-500 bg-purple-500/20 text-purple-200'
                                          : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
                     }`}
