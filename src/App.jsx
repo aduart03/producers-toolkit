@@ -1127,6 +1127,24 @@ export default function App() {
           </div>
         </button>
 
+        {/* ── Release Plan — full width ── */}
+        <button
+          onClick={() => resetMode('release')}
+          className={`w-full p-5 rounded-xl text-left border transition-all mb-3 ${
+            mode === 'release'
+              ? 'border-purple-500 bg-purple-500/10'
+              : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-semibold text-lg">🚀 Release Plan</div>
+              <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
+            </div>
+            <div className="text-2xl opacity-30">→</div>
+          </div>
+        </button>
+
         {/* ── Input panel ── */}
         {mode && (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4 space-y-4">
@@ -1524,7 +1542,6 @@ export default function App() {
                   mode === 'visuals'    ? 'e.g. I make dark techno, want visuals for live sets and Instagram reels, beginner with no budget...' :
                   mode === 'vocals'     ? 'e.g. I record at home, no vocal booth, FL Studio, I have Pro-Q 3 and a few Waves plugins. Want a professional upfront sound...' :
                   mode === 'master'     ? 'e.g. Making UK garage at 130 BPM, want it loud and wide enough for clubs, using FL Studio, have Ozone 8 and FabFilter...' :
-                  mode === 'release'    ? 'e.g. UK garage track, 130 BPM, vocal-led, sounds like Conducta meets John Summit. Want to drop in May, have Instagram and TikTok...' :
                   'Tell me more…'
                 }
                 rows={4}
