@@ -964,6 +964,63 @@ export default function App() {
             {/* DJ Set Planner — event selectors */}
             {mode === 'djset' && (
               <div className="space-y-3">
+                {/* Starter templates for new users */}
+                {!input && (
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2">New to set planning? Start here ↓</label>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      {[
+                        {
+                          icon: '🎛️',
+                          label: 'First ever DJ set',
+                          event: 'House Party',
+                          duration: '1 hour',
+                          energy: 'Slow build to peak',
+                          prompt: 'This is my first time planning a DJ set. I play UK garage and speed garage. Mixed crowd, some who know the genre and some who don\'t. Want to ease them in then go harder.',
+                        },
+                        {
+                          icon: '🏟️',
+                          label: 'Club night set',
+                          event: 'Club Night',
+                          duration: '2 hours',
+                          energy: 'Slow build to peak',
+                          prompt: 'Peak time club set. UK garage, speed garage and some house. Crowd who knows the music. Want to build steadily then go hard in the second half.',
+                        },
+                        {
+                          icon: '🎪',
+                          label: 'Festival warm-up',
+                          event: 'Festival Stage',
+                          duration: '1 hour',
+                          energy: 'Slow build to peak',
+                          prompt: 'Warm-up slot at a festival. Small crowd early on, growing as I play. Need to set the mood without going too hard too early. House and garage vibes.',
+                        },
+                        {
+                          icon: '🏠',
+                          label: 'House party all night',
+                          event: 'House Party',
+                          duration: '3 hours',
+                          energy: 'Peaks and valleys',
+                          prompt: 'Playing a house party all night. Diverse crowd, mix of ages. Want it to feel like a proper night out — peaks, valleys, crowd reading, nothing too intense.',
+                        },
+                      ].map(t => (
+                        <button
+                          key={t.label}
+                          onClick={() => {
+                            setInput(t.prompt)
+                            setDjSetEvent(t.event)
+                            setDjSetDuration(t.duration)
+                            setDjSetEnergy(t.energy)
+                          }}
+                          className="bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-purple-600 rounded-xl p-3 text-left transition-all group"
+                        >
+                          <div className="text-lg mb-1">{t.icon}</div>
+                          <div className="text-xs font-medium text-gray-200 group-hover:text-white">{t.label}</div>
+                          <div className="text-xs text-gray-600 mt-0.5">{t.event} · {t.duration}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Event type</label>
                   <div className="flex flex-wrap gap-2">
