@@ -1,0 +1,16 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'>
+  <rect width='512' height='512' rx='80' fill='#030712'/>
+  <rect x='30' y='30' width='452' height='452' rx='60' fill='#0f172a'/>
+  <!-- Piano keys -->
+  <rect x='96' y='180' width='48' height='152' rx='8' fill='#7c3aed'/>
+  <rect x='156' y='180' width='48' height='152' rx='8' fill='#6d28d9'/>
+  <rect x='216' y='180' width='48' height='152' rx='8' fill='#7c3aed'/>
+  <rect x='276' y='180' width='48' height='152' rx='8' fill='#6d28d9'/>
+  <rect x='336' y='180' width='48' height='152' rx='8' fill='#7c3aed'/>
+  <!-- Black keys -->
+  <rect x='126' y='180' width='32' height='96' rx='5' fill='#1e1b4b'/>
+  <rect x='246' y='180' width='32' height='96' rx='5' fill='#1e1b4b'/>
+  <rect x='306' y='180' width='32' height='96' rx='5' fill='#1e1b4b'/>
+  <!-- PT text -->
+  <text x='256' y='148' font-family='system-ui,sans-serif' font-weight='800' font-size='52' fill='#a78bfa' text-anchor='middle'>PT</text>
+</svg>

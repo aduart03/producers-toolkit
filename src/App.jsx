@@ -113,7 +113,6 @@ const MODES = [
   { id: 'generate', label: '🎵 Generate Track',     desc: 'Suno/Udio prompt + brief'  },
   { id: 'sample',   label: '🎙️ Analyze Sample',     desc: 'Upload audio for real analysis' },
   { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
-  { id: 'visuals',   label: '🎨 Visual Tools',        desc: 'VFX & aesthetic recommendations' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -847,42 +846,49 @@ export default function App() {
           ))}
         </div>
 
-        {/* ── DJ tools — full width buttons ── */}
-        <div className="flex flex-col gap-3 mb-6">
+        {/* ── DJ tools — side by side ── */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
           <button
             onClick={() => resetMode('dj')}
-            className={`w-full p-5 rounded-xl text-left border transition-all ${
+            className={`p-4 rounded-xl text-left border transition-all ${
               mode === 'dj'
                 ? 'border-purple-500 bg-purple-500/10'
                 : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">🎛️ DJ Roadmap</div>
-                <div className="text-sm text-gray-400 mt-0.5">Where to start, what to buy, how to learn — as a visual journey map</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
-            </div>
+            <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
+            <div className="text-sm text-gray-400">Visual journey map to get started</div>
           </button>
-
           <button
             onClick={() => resetMode('djset')}
-            className={`w-full p-5 rounded-xl text-left border transition-all ${
+            className={`p-4 rounded-xl text-left border transition-all ${
               mode === 'djset'
                 ? 'border-purple-500 bg-purple-500/10'
                 : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">📋 DJ Set Planner</div>
-                <div className="text-sm text-gray-400 mt-0.5">Plan your set — BPM arc, energy flow, track sequencing & transitions</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
-            </div>
+            <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
+            <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
           </button>
         </div>
+
+        {/* ── Visual Tools — full width ── */}
+        <button
+          onClick={() => resetMode('visuals')}
+          className={`w-full p-5 rounded-xl text-left border transition-all mb-6 ${
+            mode === 'visuals'
+              ? 'border-purple-500 bg-purple-500/10'
+              : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
+              <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
+            </div>
+            <div className="text-2xl opacity-30">→</div>
+          </div>
+        </button>
 
         {/* ── Input panel ── */}
         {mode && (
@@ -999,6 +1005,55 @@ export default function App() {
                       >{t}</button>
                     ))}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Visual Tools — starter templates */}
+            {mode === 'visuals' && !input && (
+              <div>
+                <label className="block text-xs text-gray-400 mb-2">Quick start — tap a scenario or describe your own below</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {[
+                    {
+                      icon: '🎭',
+                      label: 'Live set visuals — no experience',
+                      prompt: 'I perform dark techno/UK garage live sets at small clubs. Complete beginner with visuals, budget under £100. I want something that reacts to my music in real time.',
+                      preview: 'Gets: Resolume Avenue vs VDMX comparison, free alternatives like Milkdrop, step-by-step setup guide, what gear you need to connect to a projector.',
+                    },
+                    {
+                      icon: '📱',
+                      label: 'Social content & reels',
+                      prompt: 'I make house and speed garage. I want to create high-quality Instagram reels and TikToks to promote my tracks. No film crew, mostly self-produced on a budget.',
+                      preview: 'Gets: AI video tools like Runway and Sora, free options like CapCut, how to turn your waveform into content, visual style ideas that match your genre.',
+                    },
+                    {
+                      icon: '🎥',
+                      label: 'Music video on zero budget',
+                      prompt: 'I want to make a music video for a UK garage track. Zero budget, just me and a phone. Want it to look intentional and aesthetic, not cheap.',
+                      preview: 'Gets: phone cinematography tips, free editing tools, AI-generated visual ideas, references from artists who pull it off with low budgets.',
+                    },
+                    {
+                      icon: '🖼️',
+                      label: 'Album artwork & brand visuals',
+                      prompt: 'I need artwork for an EP release and consistent visual branding for my artist identity. Dark, minimal aesthetic. Don\'t want it to look like generic AI art.',
+                      preview: 'Gets: AI image tools with the right prompting approach, Midjourney vs Adobe Firefly comparison, how to make AI art look intentional, branding tips.',
+                    },
+                  ].map(t => (
+                    <button
+                      key={t.label}
+                      onClick={() => setInput(t.prompt)}
+                      className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-purple-600 rounded-xl p-3 text-left transition-all group"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl shrink-0">{t.icon}</span>
+                        <div>
+                          <div className="text-sm font-medium text-gray-200 group-hover:text-white">{t.label}</div>
+                          <div className="text-xs text-gray-500 mt-0.5 group-hover:text-gray-400">{t.preview}</div>
+                        </div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
