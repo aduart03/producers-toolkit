@@ -464,8 +464,8 @@ CHANNEL 3 — "Comp":
 
 CHANNEL 4 — "EQ":
 - API-560 graphic EQ: broad tonal shaping
-- Ozone 8 (Ozone 3 preset): Spectral Shaper + Dynamic EQ + Vintage Compressor + Dynamics + Imager
-- THE DE-ESSER SECRET: Ozone 6 Spectral Shaper targeting 2.38kHz–14.8kHz, Threshold -8.4dB, Medium mode — this is the "get rid of sharp sss" trick, an unconventional but effective broadband approach
+- Ozone 8 (Ozone 3 preset): Vintage Compressor + Dynamics + Exciter (Triode/Tape/Tape/Triode — adds harmonic saturation across the spectrum, Tape bands at Amount 2.0 Mix 100%) + Dynamic EQ + Vintage Limiter + Imager
+- THE DE-ESSER SECRET: Ozone 6 Spectral Shaper targeting 2.38kHz–14.8kHz, Threshold -8.4dB, Medium mode — broadband dynamic attenuation across the whole top end, catches more than a standard de-esser
 - Fruity Soft Clipper: subtle saturation/limiting
 - Ozone 8 Maximizer: transparent loudness
 - Ozone 8 (Ozone 12): Vintage Limiter, Threshold -0.8dB — final brick wall
@@ -486,26 +486,45 @@ CHANNEL 5 — "Final In Chain":
 - Distructor: harmonic saturation/distortion for presence
 - Fruity Peak Controller: automatable level control
 
+MAIN VOCAL OUTPUT CHANNEL ("Official Vocal" / FL_VSH_Better_Vocal):
+This is the final output channel that everything routes to. It carries the full colour and character:
+- Slate Virtual Mix Rack — FOUR modules stacked: VCC Channel (console emulation) + FG-116 Modern (Ratio 4, HP sidechain) + FG-73 Brit N Pre (Virtual Drive cranked for preamp grit) + FG-116 Vintage (Ratio 4, HP sidechain) — two separate 1176 passes with console colour between them
+- CLA-2A Stereo: Start Me Up preset — smooth optical glue on top of all that compression
+- ValhallaDElay: PingPong mode, Tape era, Past colour, Mix 50%, L 1/16 R 1/8 (asymmetric for width), Feedback 27.4%, EQ Low 560Hz — this is a creative, present delay not a subtle one at 50% mix
+- Seventh Heaven (LiquidSonics): Vocal Chamber preset, 2.00s decay — lush chamber character
+- ValhallaVintageVerb: "Deep Vocal Space" preset, Chorus Space mode, NOW color, Mix 18.7%, Decay 2.00s, Pre-delay 72.76ms, HighCut 7690Hz, LowCut 480Hz, Damping 4000Hz -24dB — the Chorus Space mode adds slow chorused movement to the reverb tail for a lush, living quality
+- Ozone 8 ("Ozone 18" preset): Dynamics module — multiband compression, Threshold -15dB, 10:1 Ratio, Attack 20ms, Release 100ms — this is aggressive multiband squashing across the whole signal at the output stage
+- Fruity Parametric EQ 2: corrective EQ pass
+- Kickstart 2: second sidechain hit to the kick at the output stage
+- Fruity Parametric EQ 2: final EQ trim
+- Fruity Delay 2: additional delay character at the very end of the chain
+
 PARALLEL COMPRESSION CHANNEL (send from main vocal):
 - Slate Virtual Mix Rack: VCC + FG-116 Ratio 4 + FG-116 Vintage Ratio 20 + Revival — heavily squashed
 - CLA-76 Stereo: Start Me Up preset, Ratio 4, BLUEY mode
 - Distructor: gritty harmonic density
-- FabFilter Pro-Q 3: BIG MID BOOST around 500Hz — this is key, adds that thick presence when blended in
+- FabFilter Pro-Q 3: BIG MID BOOST around 500Hz — adds thick presence when blended in
 - Blend at -18 to -20dB (NOT lower — it must be audible to add density)
-- This gives thickness and excitement without killing dynamics
 
 STEREO WIDTH CHANNELS (two channels, one panned L one panned R):
 - Fruity Love Philter: filtering/movement
 - ValhallaDElay: PingPong mode, Mix 21.9%, 1/1 note, HiFi-Pop Vocal Delay setting
 - ValhallaVintageVerb: Concert Hall 1970s, Mix 38.9%, Decay 1.00s, Pre-delay 500ms, Damping 6000Hz -24dB
 - Keep faders around -14dB — adds full stereo width without dominating
-- This is what gives the vocal that wide, enveloping quality
 
 DELAY CHANNEL (dedicated delay send):
 - Abbey Road TG Mastering Chain: colour and glue
-- BBDuck-Wide Vocal Delay (post-delay effect): BBD mode, Mix 100%, 1/2 note — the vintage tape/BBD character
+- BBDuck-Wide Vocal Delay (post-delay effect): BBD mode, Mix 100%, 1/2 note — vintage tape/BBD character
 - Seventh Heaven: Rich Plate preset, Pre-delay 0ms, Low cut 97Hz, High cut 10.8kHz
-- Seventh Heaven adds a smooth plate underneath the delay tail
+- Seventh Heaven adds smooth plate underneath the delay tail
+
+SECONDARY PROCESSING CHANNEL (Insert 69 — for loop/doubled vocal elements):
+- CLA-2A Stereo + Virtual Mix Rack (FG-73 + FG-116 Modern + Revival + Trimmer)
+- Pro-Q 3: surgical cuts in low-mids + body, boost around 1.7kHz
+- Fresh Air
+- Pro-Q 3: second surgical pass
+- Fruity Reeverb 2 (FL Studio's free built-in reverb) — proof you don't always need expensive plugins for everything
+- Fader at -14.4dB in the mix
 
 GAIN STAGING:
 - Aim for vocal peaking around -6dBFS going into each processing stage
@@ -514,12 +533,14 @@ GAIN STAGING:
 - Stereo width channels at ~-14dB
 
 KEY PRODUCTION INSIGHTS:
-1. Kickstart 2 sidechain to kick = the vocal MOVES with the beat instead of fighting it
-2. Multiple Ozone instances for different jobs: spectral shaping, dynamics, maximising, limiting — each doing one thing
-3. Two de-essing approaches: surgical (RDeEsser Split mode) + broadband spectral (Ozone Spectral Shaper) — different tools catching different problems
-4. Fresh Air used twice (comp channel AND final chain) — layering the air addition rather than slamming it once
-5. The mid boost on parallel comp is intentional — you're adding frequency weight specifically where it won't be heard on its own
-6. ValhallaVintageVerb Concert Hall with 500ms pre-delay on width channels creates a sense of depth without washing the dry sound
+1. Kickstart 2 sidechain to kick happens TWICE — on the final chain AND on the main output — the groove lockdown is intentional and layered
+2. The main output VMR stacks 4 modules including two separate 1176-style compressors (Modern + Vintage) — you're compressing with two different circuit characteristics back to back
+3. ValhallaVintageVerb Chorus Space mode = the reverb modulates and moves, giving the tail a living, lush quality rather than static room sound
+4. The Ozone 3 Exciter (Triode/Tape) in the EQ channel adds harmonic saturation across frequency bands — it's a mastering tool used as a vocal colour tool
+5. ValhallaDElay at 50% mix on the main channel is a creative effect as much as a mixing tool — this is not subtle
+6. Fruity Reeverb 2 on secondary vocals proves that expensive reverbs aren't always necessary — use what serves the sound
+7. Two de-essing approaches: surgical (RDeEsser Split mode) + broadband spectral (Ozone Spectral Shaper) — different tools catching different problems
+8. Fresh Air appears twice (comp channel AND final chain) — building air gradually rather than one heavy hit
 
 Now give the user specific advice for THEIR situation: ${input}
 Adapt the chain above to their DAW, plugins, and budget. Always give free alternatives. If they have budget, tell them which plugins from this chain are worth buying first.`
