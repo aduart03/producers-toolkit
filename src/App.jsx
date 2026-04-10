@@ -121,7 +121,6 @@ const MODES = [
   { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
   { id: 'vocals',    label: '🎤 Vocal Chain',         desc: 'Pro chain from a working producer' },
   { id: 'master',   label: '🎛️ Master Chain',        desc: 'Full mastering chain breakdown' },
-  { id: 'release',  label: '🚀 Release Plan',         desc: 'Week-by-week rollout strategy' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
