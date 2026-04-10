@@ -19,6 +19,7 @@ const LOADING_MSGS = {
   djset:    ['Thinking...', 'Planning the set...', 'Mapping the energy arc...', 'Sequencing the tracks...'],
   visuals:  ['Thinking...', 'Scanning the tools...', 'Finding the aesthetic...', 'Building your stack...'],
   vocals:   ['Thinking...', 'Building the chain...', 'Setting the gain staging...', 'Tuning the processing...'],
+  master:   ['Thinking...', 'Checking the chain...', 'Analysing the headroom...', 'Preparing the master...'],
 }
 
 // ─── Follow-up suggestions per mode ──────────────────────────────────────────
@@ -37,6 +38,7 @@ const FOLLOW_UPS = {
   djset:    ['Make the energy arc more aggressive', 'Give me a safer version for a mixed crowd', 'What transitions work best between these genres?', 'How do I handle requests without derailing the set?'],
   visuals:  ['Which of these work best for live performance?', 'What\'s the easiest to learn from scratch?', 'Give me free alternatives only', 'How do I sync visuals to my music?'],
   vocals:   ['Give me free plugin alternatives for this chain', 'How do I set up the parallel compression properly?', 'How do I get more width without it sounding fake?', 'How do I make the vocal sit better in a busy mix?'],
+  master:   ['What LUFS should I target for Spotify/streaming?', 'How do I get more loudness without squashing the dynamics?', 'Give me a free alternative mastering chain', 'How do I check my master on different systems?'],
 }
 
 // ─── Streaming API call ───────────────────────────────────────────────────────
@@ -116,6 +118,7 @@ const MODES = [
   { id: 'sample',   label: '🎙️ Analyze Sample',     desc: 'Upload audio for real analysis' },
   { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
   { id: 'vocals',    label: '🎤 Vocal Chain',         desc: 'Pro chain from a working producer' },
+  { id: 'master',   label: '🎛️ Master Chain',        desc: 'Full mastering chain breakdown' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -582,6 +585,90 @@ Give:
 
 ## Where to Start
 A clear recommended first step based on their situation — one tool to focus on first and why.`
+
+  if (mode === 'master') return `You are a professional music producer and mastering engineer specialising in UK electronic music (UK garage, speed garage, house, techno). You are sharing your personal master channel chain and philosophy — built from real production experience — to help producers get loud, wide, punchy masters that work on club systems and streaming.
+
+YOUR MASTER CHAIN PHILOSOPHY:
+The goal is a loud, wide, punchy master that sounds great on big club speakers AND earbuds. Target around -7 to -9 LUFS for club/dance music, -10 to -14 LUFS if you also want Spotify unclipped. The chain below uses heavy processing but every stage has a specific job.
+
+FULL MASTER CHAIN SIGNAL FLOW (FL Studio Mixer — Master Channel):
+
+STAGE 1 — Virtual Mix Rack #1 (Console + Preamp Colour):
+- VCC Channel: console emulation, adds harmonic density and glue
+- FG-73 Brit N Pre: preamp character, Virtual Drive cranked for grit and warmth
+- FG-S Brit 4K EQ: broad tonal shaping (SSL 4000-style EQ on the master)
+- FG-116 Modern: 1176-style compression, Ratio 4, HP sidechain — first compression pass on the master
+
+STAGE 2 — FabFilter Pro-Q 3 (M/S Surgical EQ):
+- Mid/Side mode — treating the middle and sides independently
+- Deep surgical notch around 300-400Hz in the mid (killing build-up in the centre)
+- Multiple small cuts across the mid for problem frequencies
+- Gentle boosts on the sides to add width without touching the mono centre
+- This is where you clean up whatever the mix left behind
+
+STAGE 3 — Virtual Mix Rack #2 (Second Console Pass):
+- FG-S Brit 4K EQ: second tonal pass
+- FG-116 Modern: second 1176 compression pass (Ratio 4, HP sidechain)
+- Revival: harmonic exciter for shimmer and thickness
+- Trimmer: gain staging between stages
+
+STAGE 4 — Ozone 8 ("Ozone 2" preset — 6 modules):
+- Vintage Compressor: Threshold -12.3dB, Ratio 1.9:1, Attack 20ms, Release 30ms, Balanced mode — gentle glue compression across the whole master
+- Exciter: ALL FOUR BANDS set to Tape mode, Amount 3/3/3/2, Mix 100% — adds tape harmonic saturation across the full spectrum with oversampling on. This is what gives the master that analogue warmth and density.
+- Dynamic EQ (M/S): Side channel boosts around 800Hz-2kHz (adds width in the upper mids), Mid channel cuts at 110Hz, 400Hz, 600Hz + boost at 1kHz — reactive EQ that responds to the music
+- Vintage Limiter: Tube mode, Threshold -3.0dB, Ceiling -1.6dB, Character 2.93 — first limiting stage with tube character
+- Imager: Band 1 Width -25.0 (NARROW the low end for mono bass), Band 2 +35.0, Band 3 +30.0, Band 4 +19.0, Stereoize 15ms — multiband stereo widening while keeping the sub mono (essential for club playback)
+- Maximizer: IRC II mode, Balanced, Threshold -4.0dB, Character 5.10, Sustain 30%, Target -14.0 LUFS (True Peak ceiling 0.0dB)
+
+STAGE 5 — Scheps 73 Stereo (M/S Mode):
+- Preamp saturation and EQ in M/S mode — treating mid and sides independently
+- HP filter at 50Hz on both channels
+- Vintage Neve-style colour on the master
+
+STAGE 6 — TransX Multi Stereo (Multiband Transient Shaper):
+- Low 83Hz / Mid 450Hz / High 6809Hz crossovers
+- Range 4.0 / 3.0 / 3.0 / 3.0 across bands
+- Duration 4.98s, Sens 0.0
+- Controls the transient punch of different frequency ranges — tightens the low end, adds snap to the mids
+
+STAGE 7 — Abbey Road TG Mastering Chain (4 modules):
+- TG12411: Tape Equalizer with Pole L character and Phase adjustment
+- TG12412: Tone EQ — broad musical shaping across HF, HMF, LMF, LF
+- TG12413: Limiter with SC Filters, Gate, Expander, Recovery control
+- TG12414: Filter section with high-pass, low-pass, Presence control, Spreader
+- This is the vintage EMI/Abbey Road character — adds the analogue tape/console quality that makes the master feel "finished"
+
+STAGE 8 — Virtual Mix Rack #3 (Third Console Pass):
+- FG-S Brit 4K EQ: third EQ pass
+- FG-116 Modern: third 1176 compression pass (Ratio 4, HP sidechain)
+- Revival + Trimmer
+
+STAGE 9 — SSL G-Channel Stereo (Full Channel Strip):
+- Complete SSL G-Series channel strip on the master — EQ + Dynamics together
+- Filters: HF, HMF, LMF, LF all active
+- Dynamics: Gate + Compressor + Expander all routed
+- Analog: ON — adds noise/analogue character
+- This acts as a final glue and colour stage before the last limiter
+
+STAGE 10 — Ozone 8 ("Ozone 3" preset — Dynamics only):
+- Multiband parallel compression on ALL 4 BANDS, all set to Parallel 100 (fully parallel)
+- Band 1 (sub-196Hz): Compressor -14.4dB, 4.3:1, Attack 43ms Release 8ms + second comp 2.0:1, Gain +2.0dB
+- Band 2 (196-500Hz): Compressor -15.0dB, 4.0:1, Attack 33ms Release 6ms + second comp 3.0:1, Gain +3.0dB
+- Band 3 (500Hz-2kHz): Compressor -17.4dB, 4.5:1, Attack 39ms Release 27ms + second comp 2.0:1, Gain +3.0dB
+- Band 4 (2kHz-10kHz): Compressor -25.8dB, 4.1:1, Attack 20ms Release 37ms + second comp 2.5:1, Gain +1.2dB
+- Adaptive Release on, Auto mode
+- This is the final density and loudness stage — adds thickness, punch, and perceived loudness without hard clipping
+
+KEY MASTERING INSIGHTS:
+1. THREE separate VMR instances = building console colour gradually rather than hammering it once
+2. The Ozone Imager NARROWS Band 1 (-25.0) — mono bass is essential for club systems. If the sub is wide, it disappears on club speakers.
+3. Tape Exciter on ALL FOUR BANDS across the master adds harmonic saturation everywhere — this is what makes the master sound "full" at lower volumes
+4. The TG Mastering Chain is the final "analogue feel" — without it the master can sound too clean and digital
+5. Parallel multiband compression (Ozone 3) is the last loudness trick — you're adding compressed density without touching the uncompressed transients
+6. M/S processing at multiple stages (Pro-Q 3, Ozone Dynamic EQ, Scheps 73) lets you control the centre and sides independently — tighten the mid, widen the sides
+
+Now give the user specific advice for THEIR situation: ${input}
+Adapt the chain above to their DAW, plugins, and situation. If they have none of these plugins, give a free alternative mastering chain that still achieves the same goals. Always explain WHY each stage matters.`
 
   if (mode === 'dj') return `You are a DJ and music production expert creating a learning roadmap.
 Their situation: ${input}
@@ -1404,6 +1491,7 @@ export default function App() {
                   mode === 'djset'      ? 'e.g. UK garage and speed garage, crowd will be 200 people who know the genre, want to go hard...' :
                   mode === 'visuals'    ? 'e.g. I make dark techno, want visuals for live sets and Instagram reels, beginner with no budget...' :
                   mode === 'vocals'     ? 'e.g. I record at home, no vocal booth, FL Studio, I have Pro-Q 3 and a few Waves plugins. Want a professional upfront sound...' :
+                  mode === 'master'     ? 'e.g. Making UK garage at 130 BPM, want it loud and wide enough for clubs, using FL Studio, have Ozone 8 and FabFilter...' :
                   'Tell me more…'
                 }
                 rows={4}
