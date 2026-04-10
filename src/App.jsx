@@ -15,7 +15,9 @@ const LOADING_MSGS = {
   sample:   ['Thinking...', 'Reading the waveform...', 'Analysing frequencies...', 'Checking the dynamics...'],
   daw:      ['Thinking...', 'Checking your budget...', 'Building your setup...', 'Picking the right plugins...'],
   transition:['Thinking...', 'Mapping the differences...', 'Comparing workflows...', 'Building your guide...'],  
-  dj:       ['Thinking...', 'Building your roadmap...', 'Checking the gear...', 'Mapping the journey...'], 
+  dj:       ['Thinking...', 'Building your roadmap...', 'Checking the gear...', 'Mapping the journey...'],
+  djset:    ['Thinking...', 'Planning the set...', 'Mapping the energy arc...', 'Sequencing the tracks...'],
+  visuals:  ['Thinking...', 'Scanning the tools...', 'Finding the aesthetic...', 'Building your stack...'],
 }
 
 // ─── Follow-up suggestions per mode ──────────────────────────────────────────
@@ -30,7 +32,9 @@ const FOLLOW_UPS = {
   sample:   ['What compressor should I use?', 'How do I make it sit better in the mix?', 'Is there a free plugin that can fix this?', 'What should I do with the stereo field?'],
   daw:      ['What free plugins should I start with?', 'How do I set up my audio interface?', 'What are the best YouTube channels to learn from?', 'How do I organize my project files?'],
   transition:['Go deeper on the arrangment view differences', 'How does Ableton handle samples vs FL?', 'What are the best Ableton-specific techniques?', 'How long will the transition realistically take?'],
-  dj:       ['What budget controller can I start with?', 'How do I mix in key?','How do I learn to beatmatch?', 'What\'s the best way to practice DJing?','What are the best YouTube channels for DJs?', 'How do I transition from producing to DJing my own music?','How do I build a DJ set?'],
+  dj:       ['What budget controller can I start with?', 'How do I mix in key?', 'How do I learn to beatmatch?', 'What\'s the best way to practice DJing?', 'What are the best YouTube channels for DJs?', 'How do I transition from producing to DJing my own music?'],
+  djset:    ['Make the energy arc more aggressive', 'Give me a safer version for a mixed crowd', 'What transitions work best between these genres?', 'How do I handle requests without derailing the set?'],
+  visuals:  ['Which of these work best for live performance?', 'What\'s the easiest to learn from scratch?', 'Give me free alternatives only', 'How do I sync visuals to my music?'],
 }
 
 // ─── Streaming API call ───────────────────────────────────────────────────────
@@ -109,6 +113,7 @@ const MODES = [
   { id: 'generate', label: '🎵 Generate Track',     desc: 'Suno/Udio prompt + brief'  },
   { id: 'sample',   label: '🎙️ Analyze Sample',     desc: 'Upload audio for real analysis' },
   { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
+  { id: 'visuals',   label: '🎨 Visual Tools',        desc: 'VFX & aesthetic recommendations' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -290,7 +295,7 @@ Reference the actual numbers in your advice.`
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
-const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode }) => {
+const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy }) => {
   const CHORD_LIST  = 'C Cm D Dm E Em F Fm G Gm A Am Bb Bbm B Bm F#m C#m Ab Eb'
   const MIDI_SUFFIX = `\n\nAt the very end on its own line output EXACTLY:\nMIDI: Em-G-D-A BPM: 140\nOnly use: ${CHORD_LIST}`
 
@@ -423,6 +428,44 @@ Give them:
 - The best free resources and YouTube channels for their specific transition
 Be direct and practical — they already know how to produce, they just need to remap their muscle memory.`
 
+  if (mode === 'djset') return `You are an experienced DJ helping plan a professional set.
+Event: ${djSetEvent} | Duration: ${djSetDuration} | Energy arc: ${djSetEnergy}
+Genre/vibe/details: ${input}
+
+Structure the set plan with these exact sections:
+
+## Set Overview
+2-3 sentences on the overall approach and vibe.
+
+## BPM Arc
+Show the BPM journey across the set (e.g. "Open at 120 BPM → build to 128 by the 30-min mark → peak at 132 → cool to 125 for closing"). Be specific with numbers.
+
+## Set Structure (broken into phases)
+For each phase give: time range, BPM range, energy level (1-10), what the crowd should be feeling, 3-4 track types or specific track/artist recommendations that fit that moment.
+
+## Key Transitions
+3-4 specific transition techniques to use at the most important moments in the set (with exact timing).
+
+## What to Avoid
+2-3 common mistakes for this type of event/crowd.`
+
+  if (mode === 'visuals') return `You are an expert in music visuals, VFX tools, and creative technology.
+Help this producer/DJ find the right visual tools for their situation: ${input}
+
+Give:
+
+## Live Performance Visuals
+3-4 tools for real-time visuals during a set (e.g. Resolume, TouchDesigner, VDMX). For each: what it does, skill level required, price, and why it suits their genre.
+
+## Promotional Content
+3 tools or approaches for creating visual content to market their music (social clips, album art, video teasers). Free options first.
+
+## AI Visual Tools
+2-3 AI tools (Runway, Sora, etc.) that can generate visuals from audio or prompts — useful for music videos and social content without a film crew.
+
+## Where to Start
+A clear recommended first step based on their situation — one tool to focus on first and why.`
+
   if (mode === 'dj') return `You are a DJ and music production expert creating a learning roadmap.
 Their situation: ${input}
 
@@ -550,6 +593,9 @@ export default function App() {
   const [showGuide, setShowGuide] = useState(false)
   const [dawMode, setDawMode] = useState('setup') // 'setup' | 'transition'
   const [djRoadmapData, setDjRoadmapData] = useState(null)
+  const [djSetEvent, setDjSetEvent] = useState('Club Night')
+  const [djSetDuration, setDjSetDuration] = useState('2 hours')
+  const [djSetEnergy, setDjSetEnergy] = useState('Slow build to peak')
   const [input, setInput] = useState('')
   const [chordType, setChordType] = useState('Pad')
   const [midiType, setMidiType] = useState('chord')
@@ -666,7 +712,7 @@ export default function App() {
   // ── Initial generate ──
   const handleGenerate = async () => {
     if (!mode) return
-    const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode })
+    const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy })
     const messages = [{ role: 'user', content: prompt }]
     const response = await runGeneration(messages)
     setConversationHistory([
@@ -801,23 +847,42 @@ export default function App() {
           ))}
         </div>
 
-        {/* ── DJ Roadmap — full width button ── */}
-        <button
-          onClick={() => resetMode('dj')}
-          className={`w-full p-5 rounded-xl text-left border transition-all mb-6 ${
-            mode === 'dj'
-              ? 'border-purple-500 bg-purple-500/10'
-              : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-lg">🎛️ DJ Roadmap</div>
-              <div className="text-sm text-gray-400 mt-0.5">Where to start, what to buy, how to learn — as a visual journey map</div>
+        {/* ── DJ tools — full width buttons ── */}
+        <div className="flex flex-col gap-3 mb-6">
+          <button
+            onClick={() => resetMode('dj')}
+            className={`w-full p-5 rounded-xl text-left border transition-all ${
+              mode === 'dj'
+                ? 'border-purple-500 bg-purple-500/10'
+                : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">🎛️ DJ Roadmap</div>
+                <div className="text-sm text-gray-400 mt-0.5">Where to start, what to buy, how to learn — as a visual journey map</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
             </div>
-            <div className="text-2xl opacity-30">→</div>
-          </div>
-        </button>
+          </button>
+
+          <button
+            onClick={() => resetMode('djset')}
+            className={`w-full p-5 rounded-xl text-left border transition-all ${
+              mode === 'djset'
+                ? 'border-purple-500 bg-purple-500/10'
+                : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">📋 DJ Set Planner</div>
+                <div className="text-sm text-gray-400 mt-0.5">Plan your set — BPM arc, energy flow, track sequencing & transitions</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
+            </div>
+          </button>
+        </div>
 
         {/* ── Input panel ── */}
         {mode && (
@@ -886,6 +951,54 @@ export default function App() {
                       }`}
                     >{t}</button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* DJ Set Planner — event selectors */}
+            {mode === 'djset' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Event type</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Club Night', 'House Party', 'Festival Stage', 'Private Event', 'Online Stream', 'Warm-up Set', 'Closing Set'].map(t => (
+                      <button key={t}
+                        onClick={() => setDjSetEvent(t)}
+                        className={`px-3 py-1 rounded-lg text-sm border transition-all ${
+                          djSetEvent === t ? 'border-purple-500 bg-purple-500/20 text-purple-200'
+                                          : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
+                        }`}
+                      >{t}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Set duration</label>
+                  <div className="flex gap-2">
+                    {['30 min', '1 hour', '1.5 hours', '2 hours', '3 hours', '4+ hours'].map(t => (
+                      <button key={t}
+                        onClick={() => setDjSetDuration(t)}
+                        className={`px-3 py-1 rounded-lg text-sm border transition-all ${
+                          djSetDuration === t ? 'border-purple-500 bg-purple-500/20 text-purple-200'
+                                             : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
+                        }`}
+                      >{t}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Energy arc</label>
+                  <div className="flex gap-2">
+                    {['Slow build to peak', 'Peak time from start', 'Peaks and valleys', 'Gradual cool down'].map(t => (
+                      <button key={t}
+                        onClick={() => setDjSetEnergy(t)}
+                        className={`px-3 py-1 rounded-lg text-sm border transition-all ${
+                          djSetEnergy === t ? 'border-purple-500 bg-purple-500/20 text-purple-200'
+                                           : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
+                        }`}
+                      >{t}</button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -1058,6 +1171,8 @@ export default function App() {
                   mode === 'daw' && dawMode === 'setup'      ? 'e.g. Complete beginner, budget around £500, want to make house music, have a laptop...' :
                   mode === 'daw' && dawMode === 'transition' ? 'e.g. Been on FL Studio for 3 years, want to move to Ableton Live, I make UK garage...' :
                   mode === 'dj'         ? 'e.g. I already produce house music, want to learn to DJ my own tracks, budget £300...' :
+                  mode === 'djset'      ? 'e.g. UK garage and speed garage, crowd will be 200 people who know the genre, want to go hard...' :
+                  mode === 'visuals'    ? 'e.g. I make dark techno, want visuals for live sets and Instagram reels, beginner with no budget...' :
                   'Tell me more…'
                 }
                 rows={4}
