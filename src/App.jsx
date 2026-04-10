@@ -20,6 +20,7 @@ const LOADING_MSGS = {
   visuals:  ['Thinking...', 'Scanning the tools...', 'Finding the aesthetic...', 'Building your stack...'],
   vocals:   ['Thinking...', 'Building the chain...', 'Setting the gain staging...', 'Tuning the processing...'],
   master:   ['Thinking...', 'Checking the chain...', 'Analysing the headroom...', 'Preparing the master...'],
+  release:  ['Thinking...', 'Building the timeline...', 'Finding the right playlists...', 'Mapping the rollout...'],
 }
 
 // ─── Follow-up suggestions per mode ──────────────────────────────────────────
@@ -39,6 +40,7 @@ const FOLLOW_UPS = {
   visuals:  ['Which of these work best for live performance?', 'What\'s the easiest to learn from scratch?', 'Give me free alternatives only', 'How do I sync visuals to my music?'],
   vocals:   ['Give me free plugin alternatives for this chain', 'How do I set up the parallel compression properly?', 'How do I get more width without it sounding fake?', 'How do I make the vocal sit better in a busy mix?'],
   master:   ['What LUFS should I target for Spotify/streaming?', 'How do I get more loudness without squashing the dynamics?', 'Give me a free alternative mastering chain', 'How do I check my master on different systems?'],
+  release:  ['Write me a Spotify editorial pitch for this track', 'Which UK garage blogs and playlists should I submit to?', 'Give me 7 days of Instagram content ideas for this release', 'How do I get on Spotify\'s algorithmic playlists?'],
 }
 
 // ─── Streaming API call ───────────────────────────────────────────────────────
@@ -119,6 +121,7 @@ const MODES = [
   { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
   { id: 'vocals',    label: '🎤 Vocal Chain',         desc: 'Pro chain from a working producer' },
   { id: 'master',   label: '🎛️ Master Chain',        desc: 'Full mastering chain breakdown' },
+  { id: 'release',  label: '🚀 Release Plan',         desc: 'Week-by-week rollout strategy' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -669,6 +672,35 @@ KEY MASTERING INSIGHTS:
 
 Now give the user specific advice for THEIR situation: ${input}
 Adapt the chain above to their DAW, plugins, and situation. If they have none of these plugins, give a free alternative mastering chain that still achieves the same goals. Always explain WHY each stage matters.`
+
+  if (mode === 'release') return `You are a music marketing strategist specialising in independent electronic music releases — UK garage, speed garage, house, and techno. You help independent artists release music without a label and build real momentum.
+
+Track/artist details: ${input}
+
+Generate a complete release plan with these exact sections:
+
+## Release Overview
+2-3 sentences on the overall strategy and positioning for this release.
+
+## Release Timeline
+Work backwards from the release date (or suggest one if not given). Format as:
+- **[X weeks out]**: what to do
+Cover: finalising the master, DistroKid/TuneCore submission (needs 1-2 weeks lead time), Spotify for Artists editorial pitch (must be submitted 7 days before release), artwork finalisation, social content prep.
+
+## Week-by-Week Content Plan
+Break down what to post each week leading up to release. Be specific — not "post a clip" but "post a 15-second FL Studio session clip of the drop with the track playing in the background, no talking needed." Give 3-4 post ideas per week across Instagram Reels and TikTok.
+
+## Playlist & Blog Submission Targets
+List 6-8 specific UK garage / electronic music playlists on Spotify worth pitching to (real playlist names). List 3-4 blogs or music outlets that cover this genre (real names like Dummy Mag, The Wire, Notion, Data Transmission, Trench, etc). Include SubmitHub as the submission method.
+
+## Spotify Editorial Pitch Template
+Write a ready-to-use pitch for Spotify for Artists editorial submission — 150 words max, first person, describes the track's sound, mood, influences, and why it fits on New Music Friday / relevant genre playlists.
+
+## Post-Release (First 2 Weeks)
+What to do after it drops to maintain momentum — response content, engaging comments, pitching to algorithmic playlists, monitoring Spotify for Artists stats.
+
+## Key Platforms to Focus On
+Rank 3 platforms in order of priority for THIS type of music and THIS artist's situation, with a one-line reason for each.`
 
   if (mode === 'dj') return `You are a DJ and music production expert creating a learning roadmap.
 Their situation: ${input}
@@ -1492,6 +1524,7 @@ export default function App() {
                   mode === 'visuals'    ? 'e.g. I make dark techno, want visuals for live sets and Instagram reels, beginner with no budget...' :
                   mode === 'vocals'     ? 'e.g. I record at home, no vocal booth, FL Studio, I have Pro-Q 3 and a few Waves plugins. Want a professional upfront sound...' :
                   mode === 'master'     ? 'e.g. Making UK garage at 130 BPM, want it loud and wide enough for clubs, using FL Studio, have Ozone 8 and FabFilter...' :
+                  mode === 'release'    ? 'e.g. UK garage track, 130 BPM, vocal-led, sounds like Conducta meets John Summit. Want to drop in May, have Instagram and TikTok...' :
                   'Tell me more…'
                 }
                 rows={4}
