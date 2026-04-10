@@ -18,6 +18,7 @@ const LOADING_MSGS = {
   dj:       ['Thinking...', 'Building your roadmap...', 'Checking the gear...', 'Mapping the journey...'],
   djset:    ['Thinking...', 'Planning the set...', 'Mapping the energy arc...', 'Sequencing the tracks...'],
   visuals:  ['Thinking...', 'Scanning the tools...', 'Finding the aesthetic...', 'Building your stack...'],
+  vocals:   ['Thinking...', 'Building the chain...', 'Setting the gain staging...', 'Tuning the processing...'],
 }
 
 // ─── Follow-up suggestions per mode ──────────────────────────────────────────
@@ -35,6 +36,7 @@ const FOLLOW_UPS = {
   dj:       ['What budget controller can I start with?', 'How do I mix in key?', 'How do I learn to beatmatch?', 'What\'s the best way to practice DJing?', 'What are the best YouTube channels for DJs?', 'How do I transition from producing to DJing my own music?'],
   djset:    ['Make the energy arc more aggressive', 'Give me a safer version for a mixed crowd', 'What transitions work best between these genres?', 'How do I handle requests without derailing the set?'],
   visuals:  ['Which of these work best for live performance?', 'What\'s the easiest to learn from scratch?', 'Give me free alternatives only', 'How do I sync visuals to my music?'],
+  vocals:   ['Give me free plugin alternatives for this chain', 'How do I set up the parallel compression properly?', 'How do I get more width without it sounding fake?', 'How do I make the vocal sit better in a busy mix?'],
 }
 
 // ─── Streaming API call ───────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ const MODES = [
   { id: 'generate', label: '🎵 Generate Track',     desc: 'Suno/Udio prompt + brief'  },
   { id: 'sample',   label: '🎙️ Analyze Sample',     desc: 'Upload audio for real analysis' },
   { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
+  { id: 'vocals',    label: '🎤 Vocal Chain',         desc: 'Pro chain from a working producer' },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -426,6 +429,100 @@ Give them:
 - A realistic week-by-week transition plan (don't abandon their old DAW cold turkey)
 - The best free resources and YouTube channels for their specific transition
 Be direct and practical — they already know how to produce, they just need to remap their muscle memory.`
+
+  if (mode === 'vocals') return `You are a professional music producer specialising in UK electronic music (UK garage, speed garage, house, techno). You are sharing your personal vocal processing chain and philosophy — built through years of production experience — to help other producers get industry-level vocal results.
+
+YOUR CHAIN PHILOSOPHY (share this knowledge and adapt it to the user's situation):
+
+The goal is upfront, present, pop-influenced vocals that sit IN the beat rather than floating on top of it. Think John Summit - Lights Go Out: dry-ish, intimate, controlled, with just enough space. Not drenched in reverb.
+
+FULL SIGNAL FLOW & ROUTING (FL Studio mixer — 7 channels):
+
+CHANNEL 1 — "Recording Chain":
+- Initial tone shaping and preamp colour
+- Scheps 73 (Waves) / SSL G-Channel / Waves channel strip for warmth and vintage character
+- This is where the raw signal gets its fundamental character
+
+CHANNEL 2 — "Autotune + Preamp":
+- Auto-Tune Pro: Retune Speed 3 (tight, intentional electronic sound), Flex Tune 19, Natural Vibrato 1.5, Humanize 51
+- Stylistic UK electronic pitch correction — it's a sound, not just correction
+- Clarity Vx: de-reverb if room sound is baked into the recording
+- Waves RDeEsser: FIRST de-essing pass at ~9.5kHz, Thresh -30.7, Range -22.6, SPLIT mode — catch the worst peaks BEFORE compression amplifies them
+- Vocal Rider: rides the level automatically so compression doesn't have to work as hard
+- Valhalla Delay: Mix 16%, Single style, 1/16 note, Spread -9ms stereo, Feedback 22%, Ducking 18%, Clarity mode, EQ High 4260Hz / Low 900Hz — musical and out of the way
+- Seventh Heaven (LiquidSonics): Studio B Far preset, 2.0s decay, Pre-delay 1/64, Low cut 260Hz, High cut 3.79kHz, very low mix — subtle room, not a wash
+- Alternatives for pitch: Melodyne (natural), FL Newtone (free built-in)
+
+CHANNEL 3 — "Comp":
+- Gate first (Waves R-Channel): Thresh -32.6, Release 10 — cuts room noise between phrases
+- Slate Virtual Mix Rack: VCC (console colour) + FG-116 Ratio 4:1, Attack ~16ms, Release ~160ms, Circuit 1, HP sidechain
+- CLA-76 (Waves): final limiting/glue, 4:1, BLUEY (all-buttons mode)
+- Fresh Air (Slate): Mid 5, High 25 — air and presence lift
+- Spiff (oeksound): Cut mode, Depth 5.0, Sensitivity 7.5, Decay 3.3 — controls harsh consonants without killing the snap
+- Maag EQ4: Air Band +5 — always on, secret weapon for presence without harshness
+- Alternatives: FabFilter Pro-C 2, TDR Kotelnikov (free), Transient Master (free)
+
+CHANNEL 4 — "EQ":
+- API-560 graphic EQ: broad tonal shaping
+- Ozone 8 (Ozone 3 preset): Spectral Shaper + Dynamic EQ + Vintage Compressor + Dynamics + Imager
+- THE DE-ESSER SECRET: Ozone 6 Spectral Shaper targeting 2.38kHz–14.8kHz, Threshold -8.4dB, Medium mode — this is the "get rid of sharp sss" trick, an unconventional but effective broadband approach
+- Fruity Soft Clipper: subtle saturation/limiting
+- Ozone 8 Maximizer: transparent loudness
+- Ozone 8 (Ozone 12): Vintage Limiter, Threshold -0.8dB — final brick wall
+- FabFilter Pro-Q 3: many surgical cuts for problem frequencies
+- Maag EQ4: Air Band (second pass)
+- CLA-2A: optical compression for smoothing
+- RDeEsser Stereo: final de-essing pass in stereo
+- Alternatives: TDR Nova (free), Voxengo Marvel GEQ (free)
+
+CHANNEL 5 — "Final In Chain":
+- Kickstart 2 (Nicky Romero): sidechain to the KICK — this is what makes the vocal lock into the groove and duck with the beat
+- ValhallaVintageVerb: additional space
+- Seventh Heaven: more room character
+- Fruity Parametric EQ 2: final corrective EQ
+- Fresh Air: Mid 10, High 14 — second fresh air hit for extra air
+- Ozone 8 Dynamic EQ: Threshold -20dB, Attack 2ms, Release 14ms — reactive tonal control
+- CLA-76 Mono: final mono compression
+- Distructor: harmonic saturation/distortion for presence
+- Fruity Peak Controller: automatable level control
+
+PARALLEL COMPRESSION CHANNEL (send from main vocal):
+- Slate Virtual Mix Rack: VCC + FG-116 Ratio 4 + FG-116 Vintage Ratio 20 + Revival — heavily squashed
+- CLA-76 Stereo: Start Me Up preset, Ratio 4, BLUEY mode
+- Distructor: gritty harmonic density
+- FabFilter Pro-Q 3: BIG MID BOOST around 500Hz — this is key, adds that thick presence when blended in
+- Blend at -18 to -20dB (NOT lower — it must be audible to add density)
+- This gives thickness and excitement without killing dynamics
+
+STEREO WIDTH CHANNELS (two channels, one panned L one panned R):
+- Fruity Love Philter: filtering/movement
+- ValhallaDElay: PingPong mode, Mix 21.9%, 1/1 note, HiFi-Pop Vocal Delay setting
+- ValhallaVintageVerb: Concert Hall 1970s, Mix 38.9%, Decay 1.00s, Pre-delay 500ms, Damping 6000Hz -24dB
+- Keep faders around -14dB — adds full stereo width without dominating
+- This is what gives the vocal that wide, enveloping quality
+
+DELAY CHANNEL (dedicated delay send):
+- Abbey Road TG Mastering Chain: colour and glue
+- BBDuck-Wide Vocal Delay (post-delay effect): BBD mode, Mix 100%, 1/2 note — the vintage tape/BBD character
+- Seventh Heaven: Rich Plate preset, Pre-delay 0ms, Low cut 97Hz, High cut 10.8kHz
+- Seventh Heaven adds a smooth plate underneath the delay tail
+
+GAIN STAGING:
+- Aim for vocal peaking around -6dBFS going into each processing stage
+- Final vocal in the mix: start around -11 to -14dBFS and adjust to the track
+- Parallel comp bus at -18 to -20dB
+- Stereo width channels at ~-14dB
+
+KEY PRODUCTION INSIGHTS:
+1. Kickstart 2 sidechain to kick = the vocal MOVES with the beat instead of fighting it
+2. Multiple Ozone instances for different jobs: spectral shaping, dynamics, maximising, limiting — each doing one thing
+3. Two de-essing approaches: surgical (RDeEsser Split mode) + broadband spectral (Ozone Spectral Shaper) — different tools catching different problems
+4. Fresh Air used twice (comp channel AND final chain) — layering the air addition rather than slamming it once
+5. The mid boost on parallel comp is intentional — you're adding frequency weight specifically where it won't be heard on its own
+6. ValhallaVintageVerb Concert Hall with 500ms pre-delay on width channels creates a sense of depth without washing the dry sound
+
+Now give the user specific advice for THEIR situation: ${input}
+Adapt the chain above to their DAW, plugins, and budget. Always give free alternatives. If they have budget, tell them which plugins from this chain are worth buying first.`
 
   if (mode === 'djset') return `You are an experienced DJ helping plan a professional set.
 Event: ${djSetEvent} | Duration: ${djSetDuration} | Energy arc: ${djSetEnergy}
@@ -1285,6 +1382,7 @@ export default function App() {
                   mode === 'dj'         ? 'e.g. I already produce house music, want to learn to DJ my own tracks, budget £300...' :
                   mode === 'djset'      ? 'e.g. UK garage and speed garage, crowd will be 200 people who know the genre, want to go hard...' :
                   mode === 'visuals'    ? 'e.g. I make dark techno, want visuals for live sets and Instagram reels, beginner with no budget...' :
+                  mode === 'vocals'     ? 'e.g. I record at home, no vocal booth, FL Studio, I have Pro-Q 3 and a few Waves plugins. Want a professional upfront sound...' :
                   'Tell me more…'
                 }
                 rows={4}
