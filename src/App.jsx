@@ -138,7 +138,7 @@ const generateNoteMidi = (notes, bpm) => {
   const track = new MidiWriter.Track()
   track.setTempo(bpm || 130)
   notes.forEach(note => {
-    track.addEvent(new MidiWriter.NoteEvent({ pitch: [note], duration: 'q', velocity: 80 }))
+    track.addEvent(new MidiWriter.NoteEvent({ pitch: [note], duration: '4', velocity: 80 }))
   })
   return new MidiWriter.Writer(track).dataUri()
 }
