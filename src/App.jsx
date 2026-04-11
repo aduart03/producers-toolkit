@@ -304,7 +304,7 @@ Reference the actual numbers in your advice.`
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy }) => {
   const CHORD_LIST  = 'C Cm D Dm E Em F Fm G Gm A Am Bb Bbm B Bm F#m C#m Ab Eb'
-  const MIDI_SUFFIX = `\n\nAt the very end on its own line output EXACTLY:\nMIDI: Em-G-D-A BPM: 140\nOnly use: ${CHORD_LIST}`
+  const MIDI_SUFFIX = `\n\nAt the very end, output a MIDI chord progression that matches the key, mood and reference of the track described above. Use chords that actually fit the input — do NOT default to Em-G-D-A. Output on its own line EXACTLY like this format:\nMIDI: [your chosen chords]-[chord2]-[chord3]-[chord4] BPM: [matching BPM]\nOnly use chords from this list: ${CHORD_LIST}`
 
   const beginnerBlock = beginnerMode ? `
 
