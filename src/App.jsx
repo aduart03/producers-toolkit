@@ -302,9 +302,11 @@ Reference the actual numbers in your advice.`
 }
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
-const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy }) => {
+const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, pedalNote, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy }) => {
   const CHORD_LIST  = 'C Cm D Dm E Em F Fm G Gm A Am Bb Bbm B Bm F#m C#m Ab Eb'
   const MIDI_SUFFIX = `\n\nAt the very end, output a MIDI chord progression that matches the key, mood and reference of the track described above. Use chords that actually fit the input — do NOT default to Em-G-D-A. Output on its own line EXACTLY like this format:\nMIDI: [your chosen chords]-[chord2]-[chord3]-[chord4] BPM: [matching BPM]\nOnly use chords from this list: ${CHORD_LIST}`
+
+  const pedalBlock = pedalNote ? `\nIMPORTANT: Use a pedal note approach — pick one root note in the bass register and repeat it as a drone/anchor throughout the pattern while the harmony moves above it. Common in UK garage and deep house. The BASS output should reflect this with the root note repeating.` : ''
 
   const beginnerBlock = beginnerMode ? `
 
@@ -316,15 +318,17 @@ In plain English: what this chord progression means (e.g. "Em = E minor = dark, 
   if (mode === 'start' && midiType === 'melody') {
     return `You are a music production assistant. Generate a melodic idea for a ${input} track.
 Give: key/scale, mood, BPM range, description of the melody character, how a beginner can use it.
+Pick notes that genuinely match the key, mood and reference of the input — do NOT default to a generic E minor pattern.
 At the very end on its own line output EXACTLY (8-12 notes, format E4 G4 A4 etc.):
-MELODY: E4-G4-A4-G4-E4-D4-C4-D4 BPM: 130${beginnerBlock}`
+MELODY: [your chosen notes that fit the input key and mood] BPM: [matching BPM]${beginnerBlock}`
   }
 
   if (mode === 'start' && midiType === 'bass') {
     return `You are a music production assistant. Generate a bassline idea for a ${input} track.
 Give: key/scale, BPM, bassline character (rolling sub, punchy stabs, etc.), how to use it.
+Pick notes that genuinely match the key and groove of the input — do NOT default to a generic E minor pattern.${pedalBlock}
 At the very end on its own line output EXACTLY (8 notes, bass register):
-BASS: E2-E2-G2-A2-E2-G2-A2-C3 BPM: 130${beginnerBlock}`
+BASS: [your chosen bass notes that fit the input key and style] BPM: [matching BPM]${beginnerBlock}`
   }
 
   if (mode === 'start') return `You are a music producer assistant with deep knowledge of electronic music.
@@ -835,6 +839,7 @@ export default function App() {
   const [chordType, setChordType] = useState('Pad')
   const [midiType, setMidiType] = useState('chord')
   const [beginnerMode, setBeginnerMode] = useState(false)
+  const [pedalNote, setPedalNote] = useState(false)
   const [selectedSynth, setSelectedSynth] = useState('')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
@@ -947,7 +952,7 @@ export default function App() {
   // ── Initial generate ──
   const handleGenerate = async () => {
     if (!mode) return
-    const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy })
+    const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, pedalNote, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy })
     const messages = [{ role: 'user', content: prompt }]
     const response = await runGeneration(messages)
     setConversationHistory([
@@ -1195,6 +1200,21 @@ export default function App() {
                     <span className="text-gray-500 text-xs ml-1.5">explains chords, sounds & BPM in plain English</span>
                   </span>
                 </div>
+                {midiType === 'bass' && (
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setPedalNote(b => !b)}
+                      className={`relative w-10 h-5 rounded-full border transition-colors shrink-0 ${
+                        pedalNote ? 'bg-purple-600 border-purple-500' : 'bg-gray-700 border-gray-600'
+                      }`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${pedalNote ? 'right-0.5' : 'left-0.5'}`} />
+                    </button>
+                    <span className="text-sm text-gray-300">
+                      🎵 Pedal Note
+                      <span className="text-gray-500 text-xs ml-1.5">root note drones while harmony moves — UK garage / deep house</span>
+                    </span>
+                  </div>
+                )}
               </>
             )}
 
