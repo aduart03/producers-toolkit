@@ -154,12 +154,44 @@ const parseMidiLine = (text) => {
   return null
 }
 
+// Parse all 3 MIDI lines + instruments + mixer from a full-track response
+const parseAllMidi = (text) => {
+  const result = {}
+  const chordMatch  = text.match(/^MIDI:\s*([\w#b]+(?:-[\w#b]+)*)\s+BPM:\s*(\d+)/mi)
+  if (chordMatch)  result.chord  = { notes: chordMatch[1].split('-'),  bpm: parseInt(chordMatch[2]) }
+  const melodyMatch = text.match(/^MELODY:\s*([\w#b\d]+(?:-[\w#b\d]+)*)\s+BPM:\s*(\d+)/mi)
+  if (melodyMatch) result.melody = { notes: melodyMatch[1].split('-'), bpm: parseInt(melodyMatch[2]) }
+  const bassMatch   = text.match(/^BASS:\s*([\w#b\d]+(?:-[\w#b\d]+)*)\s+BPM:\s*(\d+)/mi)
+  if (bassMatch)   result.bass   = { notes: bassMatch[1].split('-'),   bpm: parseInt(bassMatch[2]) }
+  const instrMatch  = text.match(/^INSTRUMENTS:\s*([^\n]+)/mi)
+  if (instrMatch) {
+    result.instruments = {}
+    instrMatch[1].split('|').forEach(p => {
+      const idx = p.indexOf(':')
+      if (idx > -1) result.instruments[p.slice(0, idx).trim().toLowerCase()] = p.slice(idx + 1).trim()
+    })
+  }
+  const mixerMatch = text.match(/^MIXER:\s*([^\n]+)/mi)
+  if (mixerMatch) {
+    result.mixer = mixerMatch[1].split('|').map((ch, i) => {
+      const idx = ch.indexOf(':')
+      return idx > -1
+        ? { ch: i + 1, label: ch.slice(0, idx).trim(), detail: ch.slice(idx + 1).trim() }
+        : { ch: i + 1, label: ch.trim(), detail: '' }
+    })
+  }
+  return Object.keys(result).length > 0 ? result : null
+}
+
 const cleanResult = (text) =>
   text
-    .replace(/MIDI:.*BPM:\s*\d+/gi, '')
-    .replace(/MELODY:.*BPM:\s*\d+/gi, '')
-    .replace(/BASS:.*BPM:\s*\d+/gi, '')
-    .replace(/STAGE\[\d+\]:[^\n]+/g, '')
+    .replace(/^MIDI:.*BPM:\s*\d+.*$/gmi, '')
+    .replace(/^MELODY:.*BPM:\s*\d+.*$/gmi, '')
+    .replace(/^BASS:.*BPM:\s*\d+.*$/gmi, '')
+    .replace(/^INSTRUMENTS:[^\n]*/gmi, '')
+    .replace(/^MIXER:[^\n]*/gmi, '')
+    .replace(/^STAGE\[\d+\]:[^\n]+/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 
 const parseDJRoadmap = (text) => {
@@ -306,6 +338,20 @@ const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, pedalNote
   const CHORD_LIST  = 'C Cm D Dm E Em F Fm G Gm A Am Bb Bbm B Bm F#m C#m Ab Eb'
   const MIDI_SUFFIX = `\n\nAt the very end, output a MIDI chord progression that matches the key, mood and reference of the track described above. Use chords that actually fit the input — do NOT default to Em-G-D-A. Output on its own line EXACTLY like this format:\nMIDI: [your chosen chords]-[chord2]-[chord3]-[chord4] BPM: [matching BPM]\nOnly use chords from this list: ${CHORD_LIST}`
 
+  // Full-track suffix — used by generate + start modes to output all 3 MIDI parts + FL Studio guide
+  const FULL_MIDI_SUFFIX = `
+
+---
+After your response, output ALL of the following lines. They must match the EXACT key, BPM, mood and genre you described above — reference the actual key and chords you chose, not generic patterns. A Am F C G is not a UK garage progression unless the track actually calls for it.
+
+MIDI: [chord1-chord2-chord3-chord4] BPM: [exact bpm]
+MELODY: [8 notes that fit your key e.g. A4-C5-E5-D5-C5-A4-G4-A4] BPM: [exact bpm]
+BASS: [8 bass-register notes that groove with your chords e.g. A2-A2-F2-C3-A2-G2-F2-E2] BPM: [exact bpm]
+INSTRUMENTS: Chords:[specific FL Studio synth or plugin]|Melody:[specific synth or plugin]|Bass:[specific plugin, 808 type or sample]|Drums:[specific FL Studio drum plugin or sample pack]
+MIXER: Ch1:[instrument]|Ch2:[instrument]|Ch3:[instrument]|Ch4:[instrument]|Ch5:[instrument]
+
+Rules: MIDI chords from this list only: ${CHORD_LIST}. Melody/bass notes in standard scientific notation (A4, C#3, Bb2 etc). Be specific on instruments (e.g. "Serum wavetable pad", "Flex 808", "Kick 2" — not just "synth" or "bass").`
+
   const pedalBlock = pedalNote ? `\nIMPORTANT: Use a pedal note approach — pick one root note in the bass register and repeat it as a drone/anchor throughout the pattern while the harmony moves above it. Common in UK garage and deep house. The BASS output should reflect this with the root note repeating.` : ''
 
   const beginnerBlock = beginnerMode ? `
@@ -314,33 +360,17 @@ const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, pedalNote
 **BEGINNER EXPLAINER** (add at the very end):
 In plain English: what this chord progression means (e.g. "Em = E minor = dark, moody"), how to find these notes on a keyboard, what a "${chordType}" sounds like in simple terms, what the BPM feels like physically, and one tip for placing these chords in FL Studio.` : ''
 
-  // ── Melody / bass overrides for Start From Nothing ────
-  if (mode === 'start' && midiType === 'melody') {
-    return `You are a music production assistant. Generate a melodic idea for a ${input} track.
-Give: key/scale, mood, BPM range, description of the melody character, how a beginner can use it.
-Pick notes that genuinely match the key, mood and reference of the input — do NOT default to a generic E minor pattern.
-At the very end on its own line output EXACTLY (8-12 notes, format E4 G4 A4 etc.):
-MELODY: [your chosen notes that fit the input key and mood] BPM: [matching BPM]${beginnerBlock}`
-  }
-
-  if (mode === 'start' && midiType === 'bass') {
-    return `You are a music production assistant. Generate a bassline idea for a ${input} track.
-Give: key/scale, BPM, bassline character (rolling sub, punchy stabs, etc.), how to use it.
-Pick notes that genuinely match the key and groove of the input — do NOT default to a generic E minor pattern.${pedalBlock}
-At the very end on its own line output EXACTLY (8 notes, bass register):
-BASS: [your chosen bass notes that fit the input key and style] BPM: [matching BPM]${beginnerBlock}`
-  }
-
   if (mode === 'start') return `You are a music producer assistant with deep knowledge of electronic music.
 A producer is starting from scratch. Give them:
-- Suggested BPM range
-- Key/scale recommendation
-- A chord progression suited for a **${chordType}** sound
-- Song structure breakdown
-- 2-3 reference tracks
-- One unique production element to stand out
-Format with clear headers and **bold** key info.
-Their vibe: ${input}${MIDI_SUFFIX}${beginnerBlock}`
+- Suggested BPM
+- Key/scale and WHY it fits this vibe
+- A chord progression for a **${chordType}** sound — name the actual chords (e.g. Am-F-C-G)
+- Song structure (bars breakdown: intro → build → drop → breakdown → drop → outro)
+- 2-3 specific reference tracks they can listen to
+- One unique production element to make it stand out
+- How to build this in FL Studio step by step (which channels to set up first)
+Format with clear headers and **bold** key info.${pedalBlock}
+Their vibe: ${input}${FULL_MIDI_SUFFIX}${beginnerBlock}`
 
   if (mode === 'stuck') return `You are a music producer assistant. A producer is stuck on something they've started.
 Give 3 specific directions, each with: what to add next, energy arc, production technique.
@@ -389,7 +419,7 @@ Create a full track brief and AI generation prompts for: ${input}
 Output these 4 sections with clear headers:
 
 ## Track Brief
-BPM, key, chord progression, main sounds/instruments, song structure (bars), energy arc.
+BPM, key, chord progression (name the actual chords), main sounds/instruments, song structure (bars), energy arc.
 
 ## Suno Prompt
 A single paragraph under 200 characters optimised for Suno AI. Genre, mood, tempo, key sounds. No line breaks.
@@ -399,8 +429,7 @@ More detailed version under 300 characters for Udio. Can include more musical de
 
 ## Stems to Extract
 Once they have the generated audio, which stems to separate (drums, bass, synths, etc.) and what to do with each in their DAW.
-
-${MIDI_SUFFIX}`
+${FULL_MIDI_SUFFIX}`
 
   if (mode === 'sample') {
     if (sampleAnalysis) {
@@ -918,26 +947,43 @@ export default function App() {
         accumulated += chunk
         setResult(accumulated)
       })
-      const parsed  = parseMidiLine(accumulated)
       const djStages = parseDJRoadmap(accumulated)
-      const cleaned = cleanResult(accumulated)
+      const cleaned  = cleanResult(accumulated)
       setResult(cleaned)
       if (djStages) setDjRoadmapData(djStages)
-      if (parsed) {
-        const uri = parsed.type === 'chord'
-          ? generateChordMidi(parsed.notes, parsed.bpm)
-          : generateNoteMidi(parsed.notes, parsed.bpm)
-        setMidiData({ ...parsed, uri })
-        setChordHistory(prev => [{
-          id: Date.now(),
-          type: parsed.type,
-          progression: parsed.notes.join(' → '),
-          bpm: parsed.bpm,
-          chordType: parsed.type === 'chord' ? chordType : parsed.type,
-          label: (input || mode).substring(0, 45),
-          timestamp: new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }),
-          response: cleaned,
-        }, ...prev].slice(0, 100))
+
+      // Full-track modes (generate + start) → parse all 3 MIDI parts at once
+      const isFullTrackMode = mode === 'generate' || mode === 'start'
+      if (isFullTrackMode) {
+        const allParsed = parseAllMidi(accumulated)
+        if (allParsed) {
+          const midiResult = { isFullTrack: true }
+          if (allParsed.chord)  midiResult.chord  = { ...allParsed.chord,  uri: generateChordMidi(allParsed.chord.notes, allParsed.chord.bpm) }
+          if (allParsed.melody) midiResult.melody = { ...allParsed.melody, uri: generateNoteMidi(allParsed.melody.notes, allParsed.melody.bpm) }
+          if (allParsed.bass)   midiResult.bass   = { ...allParsed.bass,   uri: generateNoteMidi(allParsed.bass.notes,   allParsed.bass.bpm)   }
+          if (allParsed.instruments) midiResult.instruments = allParsed.instruments
+          if (allParsed.mixer)       midiResult.mixer       = allParsed.mixer
+          setMidiData(midiResult)
+        }
+      } else {
+        // Single-MIDI modes (stuck, mix, etc.)
+        const parsed = parseMidiLine(accumulated)
+        if (parsed) {
+          const uri = parsed.type === 'chord'
+            ? generateChordMidi(parsed.notes, parsed.bpm)
+            : generateNoteMidi(parsed.notes, parsed.bpm)
+          setMidiData({ isFullTrack: false, ...parsed, uri })
+          setChordHistory(prev => [{
+            id: Date.now(),
+            type: parsed.type,
+            progression: parsed.notes.join(' → '),
+            bpm: parsed.bpm,
+            chordType: parsed.type === 'chord' ? chordType : parsed.type,
+            label: (input || mode).substring(0, 45),
+            timestamp: new Date().toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }),
+            response: cleaned,
+          }, ...prev].slice(0, 100))
+        }
       }
       return cleaned
     } catch (err) {
@@ -1153,40 +1199,25 @@ export default function App() {
         {mode && (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4 space-y-4">
 
-            {/* Start From Nothing — MIDI type + chord type + beginner toggle */}
+            {/* Start From Nothing — chord type + options */}
             {mode === 'start' && (
               <>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">What to generate</label>
-                  <div className="flex gap-2">
-                    {MIDI_TYPES.map(t => (
-                      <button key={t.id} onClick={() => setMidiType(t.id)}
-                        className={`flex-1 p-2.5 rounded-lg text-sm border transition-all ${
-                          midiType === t.id ? 'border-purple-500 bg-purple-500/20 text-purple-200'
-                                           : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
+                  <label className="block text-xs text-gray-400 mb-1.5">Chord Sound Type</label>
+                  <div className="flex flex-wrap gap-2">
+                    {CHORD_TYPES.map(t => (
+                      <button key={t} onClick={() => setChordType(t)}
+                        className={`px-3 py-1 rounded-lg text-sm border transition-all ${
+                          chordType === t ? 'border-purple-500 bg-purple-500/20 text-purple-200'
+                                         : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
                         }`}
-                      >
-                        <div className="font-medium">{t.label}</div>
-                        <div className="text-xs opacity-60">{t.desc}</div>
-                      </button>
+                      >{t}</button>
                     ))}
                   </div>
                 </div>
-                {midiType === 'chord' && (
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">Chord Sound Type</label>
-                    <div className="flex flex-wrap gap-2">
-                      {CHORD_TYPES.map(t => (
-                        <button key={t} onClick={() => setChordType(t)}
-                          className={`px-3 py-1 rounded-lg text-sm border transition-all ${
-                            chordType === t ? 'border-purple-500 bg-purple-500/20 text-purple-200'
-                                           : 'border-gray-700 bg-gray-800 hover:border-gray-500 text-gray-400'
-                          }`}
-                        >{t}</button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <p className="text-xs text-gray-500">
+                  🎹 Generates <strong className="text-gray-300">chords + melody + bass MIDI</strong> in one go — drag all 3 into FL Studio and you have a full arrangement skeleton.
+                </p>
                 <div className="flex items-center gap-3">
                   <button onClick={() => setBeginnerMode(b => !b)}
                     className={`relative w-10 h-5 rounded-full border transition-colors shrink-0 ${
@@ -1200,21 +1231,19 @@ export default function App() {
                     <span className="text-gray-500 text-xs ml-1.5">explains chords, sounds & BPM in plain English</span>
                   </span>
                 </div>
-                {midiType === 'bass' && (
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setPedalNote(b => !b)}
-                      className={`relative w-10 h-5 rounded-full border transition-colors shrink-0 ${
-                        pedalNote ? 'bg-purple-600 border-purple-500' : 'bg-gray-700 border-gray-600'
-                      }`}
-                    >
-                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${pedalNote ? 'right-0.5' : 'left-0.5'}`} />
-                    </button>
-                    <span className="text-sm text-gray-300">
-                      🎵 Pedal Note
-                      <span className="text-gray-500 text-xs ml-1.5">root note drones while harmony moves — UK garage / deep house</span>
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setPedalNote(b => !b)}
+                    className={`relative w-10 h-5 rounded-full border transition-colors shrink-0 ${
+                      pedalNote ? 'bg-purple-600 border-purple-500' : 'bg-gray-700 border-gray-600'
+                    }`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${pedalNote ? 'right-0.5' : 'left-0.5'}`} />
+                  </button>
+                  <span className="text-sm text-gray-300">
+                    🎵 Pedal Note Bass
+                    <span className="text-gray-500 text-xs ml-1.5">root note drones while harmony moves — UK garage / deep house</span>
+                  </span>
+                </div>
               </>
             )}
 
@@ -1571,7 +1600,7 @@ export default function App() {
             {/* Generate Track — helper note */}
             {mode === 'generate' && (
               <p className="text-xs text-gray-500">
-                💡 This generates a Suno/Udio prompt you paste into those tools for full AI audio + stem export. Suno has a free tier at <span className="text-purple-400">suno.com</span>.
+                💡 Generates a Suno/Udio prompt <strong className="text-gray-400">+</strong> chords, melody & bass MIDI files <strong className="text-gray-400">+</strong> FL Studio instrument guide — all in one hit. Suno free tier at <span className="text-purple-400">suno.com</span>.
               </p>
             )}
 
@@ -1585,8 +1614,89 @@ export default function App() {
           </div>
         )}
 
-        {/* ── MIDI download ── */}
-        {midiData && (
+        {/* ── MIDI download — full-track (3 files) ── */}
+        {midiData?.isFullTrack && (
+          <div className="mb-4 bg-purple-900/20 border border-purple-500/30 rounded-xl overflow-hidden">
+            <div className="px-4 pt-4 pb-2">
+              <div className="font-semibold text-purple-300 mb-1">🎼 Full Track MIDI Ready</div>
+              <p className="text-xs text-gray-400">Drag each file into its own FL Studio channel. Layer them and you've got a full arrangement skeleton.</p>
+            </div>
+
+            {/* 3 download buttons */}
+            <div className="px-4 pb-3 grid grid-cols-3 gap-2 mt-2">
+              {midiData.chord && (
+                <a
+                  href={midiData.chord.uri}
+                  download={`chords_${midiData.chord.notes.join('-')}_${midiData.chord.bpm}bpm.mid`}
+                  className="flex flex-col items-center gap-1 p-3 bg-purple-700/40 hover:bg-purple-700/60 border border-purple-600/40 rounded-xl text-center transition-all"
+                >
+                  <span className="text-xl">🎹</span>
+                  <span className="text-xs font-semibold text-purple-200">Chords</span>
+                  <span className="text-xs text-gray-400">{midiData.chord.notes.join('-')}</span>
+                  <span className="text-xs text-gray-500">{midiData.chord.bpm} BPM</span>
+                </a>
+              )}
+              {midiData.melody && (
+                <a
+                  href={midiData.melody.uri}
+                  download={`melody_${midiData.melody.notes.join('-')}_${midiData.melody.bpm}bpm.mid`}
+                  className="flex flex-col items-center gap-1 p-3 bg-blue-700/30 hover:bg-blue-700/50 border border-blue-600/40 rounded-xl text-center transition-all"
+                >
+                  <span className="text-xl">🎵</span>
+                  <span className="text-xs font-semibold text-blue-200">Melody</span>
+                  <span className="text-xs text-gray-400 break-all">{midiData.melody.notes.slice(0,4).join('-')}…</span>
+                  <span className="text-xs text-gray-500">{midiData.melody.bpm} BPM</span>
+                </a>
+              )}
+              {midiData.bass && (
+                <a
+                  href={midiData.bass.uri}
+                  download={`bass_${midiData.bass.notes.join('-')}_${midiData.bass.bpm}bpm.mid`}
+                  className="flex flex-col items-center gap-1 p-3 bg-green-700/30 hover:bg-green-700/50 border border-green-600/40 rounded-xl text-center transition-all"
+                >
+                  <span className="text-xl">🔉</span>
+                  <span className="text-xs font-semibold text-green-200">Bass</span>
+                  <span className="text-xs text-gray-400 break-all">{midiData.bass.notes.slice(0,4).join('-')}…</span>
+                  <span className="text-xs text-gray-500">{midiData.bass.bpm} BPM</span>
+                </a>
+              )}
+            </div>
+
+            {/* Instrument guide */}
+            {midiData.instruments && Object.keys(midiData.instruments).length > 0 && (
+              <div className="mx-4 mb-3 p-3 bg-gray-900/60 rounded-lg">
+                <div className="text-xs font-semibold text-gray-300 mb-2 uppercase tracking-wider">🎛️ Load These in FL Studio</div>
+                <div className="space-y-1.5">
+                  {Object.entries(midiData.instruments).map(([part, plugin]) => (
+                    <div key={part} className="flex gap-2 text-xs">
+                      <span className="text-gray-500 w-14 shrink-0 capitalize">{part}</span>
+                      <span className="text-gray-200">→ {plugin}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Mixer layout */}
+            {midiData.mixer && midiData.mixer.length > 0 && (
+              <div className="mx-4 mb-4 p-3 bg-gray-900/60 rounded-lg">
+                <div className="text-xs font-semibold text-gray-300 mb-2 uppercase tracking-wider">🎚️ FL Studio Mixer Setup</div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {midiData.mixer.map(ch => (
+                    <div key={ch.ch} className="flex flex-col items-center bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-2 min-w-[56px]">
+                      <span className="text-xs text-gray-500 mb-0.5">Ch{ch.ch}</span>
+                      <span className="text-xs text-gray-200 font-medium text-center leading-tight">{ch.label}</span>
+                      {ch.detail && <span className="text-xs text-gray-500 text-center mt-0.5 leading-tight">{ch.detail}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── MIDI download — single file (other modes) ── */}
+        {midiData && !midiData.isFullTrack && (
           <div className="mb-4 p-4 bg-purple-900/30 border border-purple-500/30 rounded-xl flex items-center justify-between">
             <div>
               <div className="font-semibold text-purple-300">{midiTypeIcon[midiData.type]} MIDI Ready</div>
