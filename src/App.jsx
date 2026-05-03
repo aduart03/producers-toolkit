@@ -52,7 +52,7 @@ const callAI = async (messages, onChunk) => {
     const { default: Anthropic } = await import('@anthropic-ai/sdk')
     const client = new Anthropic({ apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY, dangerouslyAllowBrowser: true })
     let full = ''
-    const stream = client.messages.stream({ model: 'claude-haiku-4-5-20251001', max_tokens: 1500, messages })
+    const stream = client.messages.stream({ model: 'claude-haiku-4-5-20251001', max_tokens: 2500, messages })
     stream.on('text', (t) => { full += t; onChunk(t) })
     await stream.finalMessage()
     return full
@@ -1123,86 +1123,79 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Mode grid ── */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          {MODES.map(m => (
-            <button
-              key={m.id}
-              onClick={() => resetMode(m.id)}
-              className={`p-4 rounded-xl text-left border transition-all ${
-                m.id === 'daw' || m.id === 'release' ? 'col-span-2' : ''
-              } ${
-                mode === m.id ? 'border-purple-500 bg-purple-500/10'
-                              : 'border-gray-800 bg-gray-900 hover:border-gray-600'
-              }`}
-            >
-              <div className="font-semibold mb-0.5">{m.label}</div>
-              <div className="text-sm text-gray-400">{m.desc}</div>
+        {/* ── Mode grid — hidden when a mode is active ── */}
+        {!mode && (<>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            {MODES.map(m => (
+              <button
+                key={m.id}
+                onClick={() => resetMode(m.id)}
+                className={`p-4 rounded-xl text-left border transition-all ${
+                  m.id === 'daw' ? 'col-span-2' : ''
+                } border-gray-800 bg-gray-900 hover:border-gray-600`}
+              >
+                <div className="font-semibold mb-0.5">{m.label}</div>
+                <div className="text-sm text-gray-400">{m.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* DJ tools */}
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <button onClick={() => resetMode('dj')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
+              <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
+              <div className="text-sm text-gray-400">Visual journey map to get started</div>
             </button>
-          ))}
-        </div>
-
-        {/* ── DJ tools — side by side ── */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <button
-            onClick={() => resetMode('dj')}
-            className={`p-4 rounded-xl text-left border transition-all ${
-              mode === 'dj'
-                ? 'border-purple-500 bg-purple-500/10'
-                : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
-            }`}
-          >
-            <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
-            <div className="text-sm text-gray-400">Visual journey map to get started</div>
-          </button>
-          <button
-            onClick={() => resetMode('djset')}
-            className={`p-4 rounded-xl text-left border transition-all ${
-              mode === 'djset'
-                ? 'border-purple-500 bg-purple-500/10'
-                : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
-            }`}
-          >
-            <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
-            <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
-          </button>
-        </div>
-
-        {/* ── Visual Tools — full width ── */}
-        <button
-          onClick={() => resetMode('visuals')}
-          className={`w-full p-5 rounded-xl text-left border transition-all mb-6 ${
-            mode === 'visuals'
-              ? 'border-purple-500 bg-purple-500/10'
-              : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
-              <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
-            </div>
-            <div className="text-2xl opacity-30">→</div>
+            <button onClick={() => resetMode('djset')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
+              <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
+              <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
+            </button>
           </div>
-        </button>
 
-        {/* ── Release Plan — full width ── */}
-        <button
-          onClick={() => resetMode('release')}
-          className={`w-full p-5 rounded-xl text-left border transition-all mb-3 ${
-            mode === 'release'
-              ? 'border-purple-500 bg-purple-500/10'
-              : 'border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-lg">🚀 Release Plan</div>
-              <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
+          {/* Visual Tools */}
+          <button onClick={() => resetMode('visuals')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
+                <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
             </div>
-            <div className="text-2xl opacity-30">→</div>
+          </button>
+
+          {/* Release Plan */}
+          <button onClick={() => resetMode('release')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">🚀 Release Plan</div>
+                <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
+            </div>
+          </button>
+        </>)}
+
+        {/* ── Active mode — back button shown instead of grid ── */}
+        {mode && (
+          <div className="flex items-center gap-3 mb-4">
+            <button
+              onClick={() => resetMode(null)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-sm text-gray-400 hover:text-white transition-all"
+            >
+              ← All tools
+            </button>
+            <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+              <span className="text-sm font-medium text-purple-300">
+                {[...MODES,
+                  {id:'dj',      label:'🎛️ DJ Roadmap'},
+                  {id:'djset',   label:'📋 DJ Set Planner'},
+                  {id:'visuals', label:'🎨 Visual Tools & VFX'},
+                  {id:'release', label:'🚀 Release Plan'},
+                ].find(m => m.id === mode)?.label || mode}
+              </span>
+            </div>
           </div>
-        </button>
+        )}
 
         {/* ── Input panel ── */}
         {mode && (
