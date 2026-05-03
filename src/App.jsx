@@ -891,6 +891,7 @@ export default function App() {
   const [sampleDesc, setSampleDesc] = useState('')
   const fileInputRef = useRef(null)
   const loadingTimerRef = useRef(null)
+  const resultRef       = useRef(null)
 
   const [chordHistory, setChordHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('chordHistory') || '[]') } catch { return [] }
@@ -898,6 +899,13 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('chordHistory', JSON.stringify(chordHistory))
   }, [chordHistory])
+
+  // ── Scroll result into view when generation starts ──
+  useEffect(() => {
+    if (loading && resultRef.current) {
+      resultRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [loading])
 
   // ── Rotate loading messages ──
   useEffect(() => {
@@ -1615,6 +1623,67 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Result — sits right below the Generate button ── */}
+        {(result || loading) && (
+          <div ref={resultRef} className="space-y-3 mt-2">
+            {/* Loading placeholder */}
+            {loading && !result && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 flex items-center gap-3">
+                <span className="animate-spin text-xl">⏳</span>
+                <span className="text-gray-400">{loadingMsg}</span>
+              </div>
+            )}
+            {/* Result box */}
+            {result && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 prose prose-invert max-w-none relative">
+                <button
+                  onClick={handleCopy}
+                  className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-400 hover:text-white transition-all border border-gray-700"
+                >
+                  {copied ? '✅ Copied!' : '📋 Copy'}
+                </button>
+                <ReactMarkdown>{result}</ReactMarkdown>
+              </div>
+            )}
+            {/* Follow-up suggestions */}
+            {!loading && mode && (FOLLOW_UPS[mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode]) && (
+              <div className="space-y-2">
+                <p className="text-xs text-gray-500 px-1">Follow up:</p>
+                <div className="flex flex-wrap gap-2">
+                  {(FOLLOW_UPS[mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode] || []).map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => handleFollowUp(suggestion)}
+                      className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 hover:border-purple-500 rounded-lg text-sm text-gray-300 hover:text-white transition-all text-left"
+                    >
+                      {suggestion} →
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Custom follow-up input */}
+            {!loading && conversationHistory.length > 0 && (
+              <div className="flex gap-2">
+                <input
+                  value={followUpInput}
+                  onChange={e => setFollowUpInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleFollowUp(followUpInput)}
+                  placeholder="Ask a follow-up... change anything, go deeper, modify the vibe"
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
+                />
+                <button
+                  onClick={() => handleFollowUp(followUpInput)}
+                  disabled={!followUpInput.trim()}
+                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-sm font-semibold transition-all"
+                >
+                  Send
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── MIDI download — full-track (3 files) ── */}
         {midiData?.isFullTrack && (
           <div className="mb-4 bg-purple-900/20 border border-purple-500/30 rounded-xl overflow-hidden">
@@ -1759,59 +1828,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Result ── */}
-        {result && (
-          <div className="space-y-3">
-            {/* Result box with copy button */}
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 prose prose-invert max-w-none relative">
-              <button
-                onClick={handleCopy}
-                className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-xs text-gray-400 hover:text-white transition-all border border-gray-700"
-              >
-                {copied ? '✅ Copied!' : '📋 Copy'}
-              </button>
-              <ReactMarkdown>{result}</ReactMarkdown>
-            </div>
-
-            {/* Follow-up suggestions */}
-            {!loading && mode && (FOLLOW_UPS[mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode]) && (
-              <div className="space-y-2">
-                <p className="text-xs text-gray-500 px-1">Follow up:</p>
-                <div className="flex flex-wrap gap-2">
-                  {(FOLLOW_UPS[mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode] || []).map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      onClick={() => handleFollowUp(suggestion)}
-                      className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 hover:border-purple-500 rounded-lg text-sm text-gray-300 hover:text-white transition-all text-left"
-                    >
-                      {suggestion} →
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Custom follow-up input */}
-            {!loading && conversationHistory.length > 0 && (
-              <div className="flex gap-2">
-                <input
-                  value={followUpInput}
-                  onChange={e => setFollowUpInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleFollowUp(followUpInput)}
-                  placeholder="Ask a follow-up... change anything, go deeper, modify the vibe"
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
-                />
-                <button
-                  onClick={() => handleFollowUp(followUpInput)}
-                  disabled={!followUpInput.trim()}
-                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-sm font-semibold transition-all"
-                >
-                  Send
-                </button>
-              </div>
-            )}
-          </div>
-        )}
 
       </div>
 
