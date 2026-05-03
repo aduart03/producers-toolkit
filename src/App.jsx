@@ -155,15 +155,16 @@ const parseMidiLine = (text) => {
 }
 
 // Parse all 3 MIDI lines + instruments + mixer from a full-track response
+// No ^ anchor — AI may indent or prefix lines, so we match anywhere in the text
 const parseAllMidi = (text) => {
   const result = {}
-  const chordMatch  = text.match(/^MIDI:\s*([\w#b]+(?:-[\w#b]+)*)\s+BPM:\s*(\d+)/mi)
+  const chordMatch  = text.match(/MIDI:\s*([\w#b]+(?:-[\w#b]+)*)\s+BPM:\s*(\d+)/i)
   if (chordMatch)  result.chord  = { notes: chordMatch[1].split('-'),  bpm: parseInt(chordMatch[2]) }
-  const melodyMatch = text.match(/^MELODY:\s*([\w#b\d]+(?:-[\w#b\d]+)*)\s+BPM:\s*(\d+)/mi)
+  const melodyMatch = text.match(/MELODY:\s*([\w#b\d]+(?:-[\w#b\d]+)*)\s+BPM:\s*(\d+)/i)
   if (melodyMatch) result.melody = { notes: melodyMatch[1].split('-'), bpm: parseInt(melodyMatch[2]) }
-  const bassMatch   = text.match(/^BASS:\s*([\w#b\d]+(?:-[\w#b\d]+)*)\s+BPM:\s*(\d+)/mi)
+  const bassMatch   = text.match(/BASS:\s*([\w#b\d]+(?:-[\w#b\d]+)*)\s+BPM:\s*(\d+)/i)
   if (bassMatch)   result.bass   = { notes: bassMatch[1].split('-'),   bpm: parseInt(bassMatch[2]) }
-  const instrMatch  = text.match(/^INSTRUMENTS:\s*([^\n]+)/mi)
+  const instrMatch  = text.match(/INSTRUMENTS:\s*([^\n]+)/i)
   if (instrMatch) {
     result.instruments = {}
     instrMatch[1].split('|').forEach(p => {
@@ -171,7 +172,7 @@ const parseAllMidi = (text) => {
       if (idx > -1) result.instruments[p.slice(0, idx).trim().toLowerCase()] = p.slice(idx + 1).trim()
     })
   }
-  const mixerMatch = text.match(/^MIXER:\s*([^\n]+)/mi)
+  const mixerMatch = text.match(/MIXER:\s*([^\n]+)/i)
   if (mixerMatch) {
     result.mixer = mixerMatch[1].split('|').map((ch, i) => {
       const idx = ch.indexOf(':')
