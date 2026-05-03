@@ -334,6 +334,24 @@ Based on these actual measurements give:
 Reference the actual numbers in your advice.`
 }
 
+// ─── MIDI-only prompt (second focused call) ──────────────────────────────────
+// Separate from the main prompt so MIDI never gets cut off by a long text response
+const buildMidiOnlyPrompt = (input, trackBrief) => {
+  const CHORD_LIST = 'C Cm D Dm E Em F Fm G Gm A Am Bb Bbm B Bm F#m C#m Ab Eb'
+  return `You are a music production assistant generating MIDI data. Output ONLY the following 5 lines — no explanations, no headers, no extra text before or after.
+
+Track request: "${input}"
+Track description: ${trackBrief.slice(0, 700)}
+
+MIDI: [4 chords matching the key and mood] BPM: [bpm]
+MELODY: [8 notes matching the key e.g. A4-C5-E5-D5-C5-A4-G4-A4] BPM: [bpm]
+BASS: [8 bass-register notes e.g. A2-A2-F2-C3-A2-G2-F2-E2] BPM: [bpm]
+INSTRUMENTS: Chords:[FL Studio synth or plugin]|Melody:[FL Studio synth or plugin]|Bass:[plugin or 808 type]|Drums:[drum machine or sample pack]
+MIXER: Ch1:[name]|Ch2:[name]|Ch3:[name]|Ch4:[name]|Ch5:[name]
+
+Rules: Chord list only: ${CHORD_LIST}. Note format: A4 C#3 Bb2 etc. Match the exact key and BPM from the track description. Output nothing except the 5 lines above.`
+}
+
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, pedalNote, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy }) => {
   const CHORD_LIST  = 'C Cm D Dm E Em F Fm G Gm A Am Bb Bbm B Bm F#m C#m Ab Eb'
@@ -371,7 +389,7 @@ A producer is starting from scratch. Give them:
 - One unique production element to make it stand out
 - How to build this in FL Studio step by step (which channels to set up first)
 Format with clear headers and **bold** key info.${pedalBlock}
-Their vibe: ${input}${FULL_MIDI_SUFFIX}${beginnerBlock}`
+Their vibe: ${input}${beginnerBlock}`
 
   if (mode === 'stuck') return `You are a music producer assistant. A producer is stuck on something they've started.
 Give 3 specific directions, each with: what to add next, energy arc, production technique.
@@ -429,8 +447,7 @@ A single paragraph under 200 characters optimised for Suno AI. Genre, mood, temp
 More detailed version under 300 characters for Udio. Can include more musical detail.
 
 ## Stems to Extract
-Once they have the generated audio, which stems to separate (drums, bass, synths, etc.) and what to do with each in their DAW.
-${FULL_MIDI_SUFFIX}`
+Once they have the generated audio, which stems to separate (drums, bass, synths, etc.) and what to do with each in their DAW.`
 
   if (mode === 'sample') {
     if (sampleAnalysis) {
@@ -892,6 +909,7 @@ export default function App() {
   const fileInputRef = useRef(null)
   const loadingTimerRef = useRef(null)
   const resultRef       = useRef(null)
+  const [generatingMidi, setGeneratingMidi] = useState(false)
 
   const [chordHistory, setChordHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('chordHistory') || '[]') } catch { return [] }
@@ -1014,6 +1032,11 @@ export default function App() {
       { role: 'user', content: prompt },
       { role: 'assistant', content: response },
     ])
+    // Divide & conquer: second focused call just for MIDI data
+    const isFullTrackMode = mode === 'generate' || mode === 'start'
+    if (isFullTrackMode && response && !response.startsWith('Error:')) {
+      await generateMidiForTrack(input, response)
+    }
   }
 
   // ── Follow-up (keeps conversation context) ──
@@ -1026,6 +1049,30 @@ export default function App() {
   }
 
   // ── Copy result to clipboard ──
+  // ── Second focused call: generate MIDI data after the main text response ──
+  const generateMidiForTrack = async (userInput, trackBrief) => {
+    setGeneratingMidi(true)
+    try {
+      const midiPrompt = buildMidiOnlyPrompt(userInput, trackBrief)
+      let midiText = ''
+      await callAI([{ role: 'user', content: midiPrompt }], (chunk) => { midiText += chunk })
+      const allParsed = parseAllMidi(midiText)
+      if (allParsed) {
+        const midiResult = { isFullTrack: true }
+        if (allParsed.chord)       midiResult.chord       = { ...allParsed.chord,  uri: generateChordMidi(allParsed.chord.notes, allParsed.chord.bpm) }
+        if (allParsed.melody)      midiResult.melody      = { ...allParsed.melody, uri: generateNoteMidi(allParsed.melody.notes, allParsed.melody.bpm) }
+        if (allParsed.bass)        midiResult.bass        = { ...allParsed.bass,   uri: generateNoteMidi(allParsed.bass.notes,   allParsed.bass.bpm)   }
+        if (allParsed.instruments) midiResult.instruments = allParsed.instruments
+        if (allParsed.mixer)       midiResult.mixer       = allParsed.mixer
+        setMidiData(midiResult)
+      }
+    } catch (err) {
+      console.error('MIDI generation error:', err)
+    } finally {
+      setGeneratingMidi(false)
+    }
+  }
+
   const handleCopy = () => {
     navigator.clipboard.writeText(result).then(() => {
       setCopied(true)
@@ -1674,6 +1721,17 @@ export default function App() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── MIDI generating indicator ── */}
+        {generatingMidi && !midiData && (
+          <div className="mb-4 p-4 bg-purple-900/20 border border-purple-500/30 rounded-xl flex items-center gap-3">
+            <span className="animate-spin text-lg">🎹</span>
+            <div>
+              <div className="text-sm font-medium text-purple-300">Generating MIDI files…</div>
+              <div className="text-xs text-gray-500 mt-0.5">Building chords, melody & bassline from your track brief</div>
+            </div>
           </div>
         )}
 
