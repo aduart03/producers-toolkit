@@ -1822,6 +1822,103 @@ export default function App() {
               To add a new tool: add to MODES[] array AND add a case in buildPrompt().
               To remove a tool: delete its button block here (MODES[] entry optional).
         ── */}
+        {!mode && (<>
+          <div className="grid grid-cols-2 gap-3 mb-3"> 
+            {MODES.map(m => (
+              <button
+                key={m.id}
+                onClick={() => resetMode(m.id)}
+                className={`p-4 rounded-xl text-left border transition-all ${
+                  m.id === 'daw' ? 'col-span-2' : ''
+                } border-gray-800 bg-gray-900 hover:border-gray-600`}
+              >
+                <div className="font-semibold mb-0.5">{m.label}</div>
+                <div className="text-sm text-gray-400">{m.desc}</div>
+              </button>
+            ))}
+
+            {/* Completion Engine — featured full-width */}
+          <button
+            onClick={() => { resetCompletionSession(); resetMode('completion') }}
+            className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg text-green-300">✅ Completion Engine</div>
+                <div className="text-sm text-gray-400 mt-0.5">Turn your loop into a finished track — 5 guided stages, no escape hatches</div>
+              </div>
+              <div className="text-right shrink-0 ml-3">
+                {completionHistory.length > 0 ? (
+                  <div className="text-xs text-green-500 font-bold">🏆 {completionHistory.length} finished</div>
+                ) : (
+                  <div className="text-xs text-green-700 font-medium">5 stages</div>
+                )}
+                <div className="text-2xl opacity-30 mt-0.5">→</div>
+              </div>
+            </div>
+          </button>
+          </div>
+
+          {/* DJ tools */}
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <button onClick={() => resetMode('dj')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
+              <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
+              <div className="text-sm text-gray-400">Visual journey map to get started</div>
+            </button>
+            <button onClick={() => resetMode('djset')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
+              <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
+              <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
+            </button>
+          </div>
+
+          {/* Visual Tools */}
+          <button onClick={() => resetMode('visuals')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
+                <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
+            </div>
+          </button>
+
+          {/* Release Plan */}
+          <button onClick={() => resetMode('release')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">🚀 Release Plan</div>
+                <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
+            </div>
+          </button>
+
+          
+        </>)}
+
+        {/* ── Active mode — back button shown instead of grid ── */}
+        {mode && (
+          <div className="flex items-center gap-3 mb-4">
+            <button
+              onClick={() => resetMode(null)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-sm text-gray-400 hover:text-white transition-all"
+            >
+              ← All tools
+            </button>
+            <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+              <span className="text-sm font-medium text-purple-300">
+                {[...MODES,
+                  {id:'dj',         label:'🎛️ DJ Roadmap'},
+                  {id:'djset',      label:'📋 DJ Set Planner'},
+                  {id:'visuals',    label:'🎨 Visual Tools & VFX'},
+                  {id:'release',    label:'🚀 Release Plan'},
+                  {id:'stereo',     label:'🌐 Stereo Analyzer'},
+                  {id:'completion', label:'✅ Completion Engine'},
+                ].find(m => m.id === mode)?.label || mode}
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* ── Completion Engine UI ── */}
         {mode === 'completion' && (
@@ -2328,104 +2425,6 @@ export default function App() {
 
           </div>
         )}
-        
-        {!mode && (<>
-          <div className="grid grid-cols-2 gap-3 mb-3"> 
-            {MODES.map(m => (
-              <button
-                key={m.id}
-                onClick={() => resetMode(m.id)}
-                className={`p-4 rounded-xl text-left border transition-all ${
-                  m.id === 'daw' ? 'col-span-2' : ''
-                } border-gray-800 bg-gray-900 hover:border-gray-600`}
-              >
-                <div className="font-semibold mb-0.5">{m.label}</div>
-                <div className="text-sm text-gray-400">{m.desc}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* DJ tools */}
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <button onClick={() => resetMode('dj')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
-              <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
-              <div className="text-sm text-gray-400">Visual journey map to get started</div>
-            </button>
-            <button onClick={() => resetMode('djset')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
-              <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
-              <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
-            </button>
-          </div>
-
-          {/* Visual Tools */}
-          <button onClick={() => resetMode('visuals')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
-                <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
-            </div>
-          </button>
-
-          {/* Release Plan */}
-          <button onClick={() => resetMode('release')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">🚀 Release Plan</div>
-                <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
-            </div>
-          </button>
-
-          {/* Completion Engine — featured full-width */}
-          <button
-            onClick={() => { resetCompletionSession(); resetMode('completion') }}
-            className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg text-green-300">✅ Completion Engine</div>
-                <div className="text-sm text-gray-400 mt-0.5">Turn your loop into a finished track — 5 guided stages, no escape hatches</div>
-              </div>
-              <div className="text-right shrink-0 ml-3">
-                {completionHistory.length > 0 ? (
-                  <div className="text-xs text-green-500 font-bold">🏆 {completionHistory.length} finished</div>
-                ) : (
-                  <div className="text-xs text-green-700 font-medium">5 stages</div>
-                )}
-                <div className="text-2xl opacity-30 mt-0.5">→</div>
-              </div>
-            </div>
-          </button>
-        </>)}
-
-        {/* ── Active mode — back button shown instead of grid ── */}
-        {mode && (
-          <div className="flex items-center gap-3 mb-4">
-            <button
-              onClick={() => resetMode(null)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-sm text-gray-400 hover:text-white transition-all"
-            >
-              ← All tools
-            </button>
-            <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-xl">
-              <span className="text-sm font-medium text-purple-300">
-                {[...MODES,
-                  {id:'dj',         label:'🎛️ DJ Roadmap'},
-                  {id:'djset',      label:'📋 DJ Set Planner'},
-                  {id:'visuals',    label:'🎨 Visual Tools & VFX'},
-                  {id:'release',    label:'🚀 Release Plan'},
-                  {id:'stereo',     label:'🌐 Stereo Analyzer'},
-                  {id:'completion', label:'✅ Completion Engine'},
-                ].find(m => m.id === mode)?.label || mode}
-              </span>
-            </div>
-          </div>
-        )}
-
-        
 
         {/* ── Input panel ── */}
         {mode && mode !== 'completion' && (
