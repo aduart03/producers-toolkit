@@ -27,6 +27,16 @@ A web app that gives MAYVBLU (and other producers) an AI assistant tuned to real
 **API route:** `/api/generate.js` — Vercel serverless function, streams SSE responses  
 **To deploy:** `git add src/App.jsx api/generate.js && git commit -m "message" && git push` from terminal (Claude can't push — proxy blocks git)
 
+The application tailors to both Advanced users and new users, but it assumes that the user is already working on a track or has started. So the options on display should be:
+- start from nothing >> sound discovery, 
+- generate lyric ideas
+- guide to completion >> mixing advise, analyze song (then give steps to finish or adjust), vocal chain, master chain, stereo analyzer>> release plan
+- analyze sample
+- Dj Set planner >> dj roadmap
+
+also visual effects should be displayed while runtime or when the song is playing, which leads to the next thing the user should be able to do, which is be able to play their analyzed song or uploaded song
+
+
 ---
 
 ## Key Files

@@ -3,6 +3,44 @@ import ReactMarkdown from 'react-markdown'
 import MidiWriter from 'midi-writer-js'
 import './App.css'
 
+// =============================================================================
+// APP.JSX — PRODUCER'S TOOLKIT
+// =============================================================================
+//
+// FILE STRUCTURE (top to bottom):
+//
+//  CONSTANTS & CONFIG          line ~7    — LOADING_MSGS, FOLLOW_UPS, MODES, CHORD_VOICINGS etc.
+//  UTILITY FUNCTIONS           line ~48   — callAI (streaming API wrapper)
+//  MIDI GENERATION             line ~129  — generateChordMidi, generateNoteMidi
+//  MIDI PARSING                line ~149  — parseMidiLine, parseAllMidi, cleanResult
+//  WEB AUDIO ANALYSIS          line ~217  — analyzeAudioFile (frequency/peak/RMS)
+//  STEREO FIELD ANALYSIS       line ~314  — analyzeStereoField + buildStereoPrompt + parseStereoField
+//  STEREO FIELD COMPONENT      line ~419  — StereoFieldPanel (SVG bird's-eye view)
+//  COMPLETION ENGINE           line ~521  — constants, prompt builders, parsers
+//  PROMPT BUILDER              line ~650  — buildPrompt() — one big switch for all modes
+//  GUIDE CONTENT               line ~1066 — GUIDE[] — the ? modal content
+//
+//  APP COMPONENT               line ~1172 — export default function App()
+//    STATE                     line ~1173 — all useState/useRef declarations
+//    EFFECTS                   line ~1247 — scroll, loading messages, localStorage sync
+//    FILE HANDLERS             line ~1271 — handleFileSelect, handleStereoFileSelect
+//    CORE GENERATION           line ~1306 — runGeneration, handleGenerate, handleFollowUp
+//    COMPLETION HANDLERS       line ~1480 — handleBeginCompletion → handleMarkFinished
+//    JSX / RENDER              line ~1638 — return(...)
+//      HEADER                             — title, ? button, History button
+//      HISTORY PANEL                      — chord history drawer
+//      HOME SCREEN (mode grid)            — all tool cards (only shown when no mode active)
+//      ACTIVE MODE HEADER                 — ← All tools + mode chip
+//      COMPLETION ENGINE UI               — 7-stage flow (separate from standard input)
+//      STANDARD INPUT PANEL               — textarea / file upload / mode controls + Generate
+//      RESULT + FOLLOW-UPS                — streamed markdown response + suggestion chips
+//      MIDI CARDS                         — download buttons for chord/melody/bass MIDI
+//      STEREO FIELD VISUALIZATION         — side-by-side SVG panels + comparison table
+//      DJ ROADMAP                         — horizontal stage cards
+//      GUIDE MODAL                        — fullscreen overlay
+//
+// =============================================================================
+
 // ─── Rotating loading messages ───────────────────────────────────────────────
 const LOADING_MSGS = {
   start:    ['Thinking...', 'Setting the vibe...', 'Building your brief...', 'Finding reference tracks...'],
@@ -1170,52 +1208,81 @@ const GUIDE = [
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  // ── Navigation & UI ──────────────────────────────────────────────────────────
+  // mode: which tool is active. null = home screen (mode grid shown).
+  // Changing mode via resetMode() clears all input/result state automatically.
   const [mode, setMode] = useState(null)
-  const [showGuide, setShowGuide] = useState(false)
-  const [dawMode, setDawMode] = useState('setup') // 'setup' | 'transition'
-  const [djRoadmapData, setDjRoadmapData] = useState(null)
-  const [djSetEvent, setDjSetEvent] = useState('Club Night')
-  const [djSetDuration, setDjSetDuration] = useState('2 hours')
-  const [djSetEnergy, setDjSetEnergy] = useState('Slow build to peak')
+  const [showGuide, setShowGuide] = useState(false)   // ? modal open/closed
+  const [showHistory, setShowHistory] = useState(false) // history drawer open/closed
+  const [copied, setCopied] = useState(false)           // clipboard feedback
+
+  // ── Core input / output ───────────────────────────────────────────────────────
+  // These are shared by most modes. The textarea binds to `input`, AI response
+  // streams into `result`, and `loading` drives the spinner + disabled state.
   const [input, setInput] = useState('')
-  const [chordType, setChordType] = useState('Pad')
-  const [midiType, setMidiType] = useState('chord')
-  const [beginnerMode, setBeginnerMode] = useState(false)
-  const [pedalNote, setPedalNote] = useState(false)
-  const [selectedSynth, setSelectedSynth] = useState('')
   const [result, setResult] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('Thinking...')
-  const [midiData, setMidiData] = useState(null)
-  const [showHistory, setShowHistory] = useState(false)
-  const [copied, setCopied] = useState(false)
 
-  // Follow-up / conversation
+  // ── Mode-specific controls ────────────────────────────────────────────────────
+  const [chordType, setChordType] = useState('Pad')        // start/stuck: chord sound type
+  const [midiType, setMidiType] = useState('chord')         // non-full-track modes
+  const [beginnerMode, setBeginnerMode] = useState(false)   // plain English explainer toggle
+  const [pedalNote, setPedalNote] = useState(false)         // UK garage drone bass toggle
+  const [selectedSynth, setSelectedSynth] = useState('')    // sound design: which synth
+  const [dawMode, setDawMode] = useState('setup')           // daw: 'setup' | 'transition'
+  const [djSetEvent, setDjSetEvent] = useState('Club Night')
+  const [djSetDuration, setDjSetDuration] = useState('2 hours')
+  const [djSetEnergy, setDjSetEnergy] = useState('Slow build to peak')
+  const [djRoadmapData, setDjRoadmapData] = useState(null)  // parsed stage cards from AI
+
+  // ── MIDI ──────────────────────────────────────────────────────────────────────
+  // midiData holds the generated MIDI — either a single file or the full 3-file object.
+  // isFullTrack:true = start/generate modes (chord + melody + bass).
+  // isFullTrack:false = single chord file (stuck/mix etc).
+  const [midiData, setMidiData] = useState(null)
+  const [generatingMidi, setGeneratingMidi] = useState(false) // second AI call in progress
+
+  // ── Conversation / follow-up ──────────────────────────────────────────────────
+  // conversationHistory is the full message array sent back to the AI each follow-up.
+  // Keeps context across the whole conversation for the active mode.
   const [conversationHistory, setConversationHistory] = useState([])
   const [followUpInput, setFollowUpInput] = useState('')
 
-  // Sample analysis
+  // ── Sample analysis (sample mode) ────────────────────────────────────────────
+  // File is read by analyzeAudioFile() which runs Web Audio API locally in the browser.
+  // The measured numbers (peak, RMS, bands) are sent to AI — not the audio itself.
   const [sampleFile, setSampleFile] = useState(null)
   const [sampleAnalysis, setSampleAnalysis] = useState(null)
   const [analysingAudio, setAnalysingAudio] = useState(false)
   const [audioError, setAudioError] = useState('')
   const [sampleInstrument, setSampleInstrument] = useState('Kick')
   const [sampleDesc, setSampleDesc] = useState('')
-  const fileInputRef = useRef(null)
-  const loadingTimerRef = useRef(null)
-  const resultRef       = useRef(null)
-  const [generatingMidi, setGeneratingMidi] = useState(false)
 
-  // Stereo field analyzer
+  // ── Stereo field analyzer (stereo mode) ──────────────────────────────────────
+  // Uses Goertzel algorithm to measure L/R energy split across 7 frequency bands.
+  // stereoFieldData is the parsed AI response: { actual[], ideal[], feedback }.
+  // StereoFieldPanel renders it as an SVG bird's-eye stage diagram.
   const [stereoFile,      setStereoFile]      = useState(null)
   const [stereoAnalysis,  setStereoAnalysis]  = useState(null)
   const [analysingStereo, setAnalysingStereo] = useState(false)
   const [stereoError,     setStereoError]     = useState('')
   const [stereoGenre,     setStereoGenre]     = useState('')
   const [stereoFieldData, setStereoFieldData] = useState(null)
-  const stereoFileRef = useRef(null)
 
-  // Completion Engine state
+  // ── Refs ──────────────────────────────────────────────────────────────────────
+  const fileInputRef    = useRef(null)  // hidden <input type="file"> for sample upload
+  const stereoFileRef   = useRef(null)  // hidden <input type="file"> for stereo upload
+  const loadingTimerRef = useRef(null)  // interval ID for rotating loading messages
+  const resultRef       = useRef(null)  // scrollIntoView target when generation starts
+
+  // ── Completion Engine state ───────────────────────────────────────────────────
+  // completionStage: 0=entry screen, 1-5=active stages, 6=celebration/done
+  // completionTrack: built up as stages complete
+  //   { name, commitment, bpm, key, vibe, direction, structure, structureTips, feedback[] }
+  // completionDecisions: permanent log of stage 3 picks
+  // completionDecisionOptions: [{question, optionA, optionB}] shown one at a time
+  // completionHistory: localStorage — all finished tracks across sessions
   const [completionStage,           setCompletionStage]           = useState(0)
   const [completionTrack,           setCompletionTrack]           = useState(null)
   const [completionInput,           setCompletionInput]           = useState('')
@@ -1635,6 +1702,41 @@ export default function App() {
     resetCompletionSession()
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // JSX RENDER
+  // ─────────────────────────────────────────────────────────────────────────────
+  //
+  //  ALWAYS VISIBLE
+  //  ├── Header (title + ? + History buttons)
+  //  ├── History panel (chord history drawer — toggles via showHistory)
+  //
+  //  HOME SCREEN  (only when mode === null)
+  //  └── Mode grid: Completion Engine card → tool tiles → DJ → Visuals → Release
+  //
+  //  ACTIVE MODE  (only when mode !== null)
+  //  ├── Back button + mode chip
+  //  │
+  //  ├── [completion only]  Completion Engine stages 0–6
+  //  │
+  //  └── [all other modes]  Standard input panel
+  //      ├── Mode-specific controls (chord type, synth picker, DAW toggle, etc.)
+  //      ├── Main textarea (or file upload for sample/stereo modes)
+  //      └── Generate button
+  //
+  //  AFTER GENERATE (standard modes only)
+  //  ├── Result box (streamed markdown)
+  //  ├── Follow-up suggestion chips
+  //  ├── Custom follow-up input
+  //  ├── MIDI generating indicator (start/generate modes)
+  //  ├── MIDI download cards (full-track or single)
+  //  ├── Stereo field panels (stereo mode)
+  //  └── DJ Roadmap cards (dj mode)
+  //
+  //  OVERLAY
+  //  └── Guide modal (? button)
+  //
+  // ─────────────────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gray-950 text-white p-6">
       <div className="max-w-3xl mx-auto">
@@ -1715,102 +1817,11 @@ export default function App() {
           </div>
         )}
 
-        {/* ── Mode grid — hidden when a mode is active ── */}
-        {!mode && (<>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            {MODES.map(m => (
-              <button
-                key={m.id}
-                onClick={() => resetMode(m.id)}
-                className={`p-4 rounded-xl text-left border transition-all ${
-                  m.id === 'daw' ? 'col-span-2' : ''
-                } border-gray-800 bg-gray-900 hover:border-gray-600`}
-              >
-                <div className="font-semibold mb-0.5">{m.label}</div>
-                <div className="text-sm text-gray-400">{m.desc}</div>
-              </button>
-            ))}
-          </div>
-
-          {/* DJ tools */}
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <button onClick={() => resetMode('dj')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
-              <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
-              <div className="text-sm text-gray-400">Visual journey map to get started</div>
-            </button>
-            <button onClick={() => resetMode('djset')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
-              <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
-              <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
-            </button>
-          </div>
-
-          {/* Visual Tools */}
-          <button onClick={() => resetMode('visuals')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
-                <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
-            </div>
-          </button>
-
-          {/* Release Plan */}
-          <button onClick={() => resetMode('release')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">🚀 Release Plan</div>
-                <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
-            </div>
-          </button>
-
-          {/* Completion Engine — featured full-width */}
-          <button
-            onClick={() => { resetCompletionSession(); resetMode('completion') }}
-            className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg text-green-300">✅ Completion Engine</div>
-                <div className="text-sm text-gray-400 mt-0.5">Turn your loop into a finished track — 5 guided stages, no escape hatches</div>
-              </div>
-              <div className="text-right shrink-0 ml-3">
-                {completionHistory.length > 0 ? (
-                  <div className="text-xs text-green-500 font-bold">🏆 {completionHistory.length} finished</div>
-                ) : (
-                  <div className="text-xs text-green-700 font-medium">5 stages</div>
-                )}
-                <div className="text-2xl opacity-30 mt-0.5">→</div>
-              </div>
-            </div>
-          </button>
-        </>)}
-
-        {/* ── Active mode — back button shown instead of grid ── */}
-        {mode && (
-          <div className="flex items-center gap-3 mb-4">
-            <button
-              onClick={() => resetMode(null)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-sm text-gray-400 hover:text-white transition-all"
-            >
-              ← All tools
-            </button>
-            <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-xl">
-              <span className="text-sm font-medium text-purple-300">
-                {[...MODES,
-                  {id:'dj',         label:'🎛️ DJ Roadmap'},
-                  {id:'djset',      label:'📋 DJ Set Planner'},
-                  {id:'visuals',    label:'🎨 Visual Tools & VFX'},
-                  {id:'release',    label:'🚀 Release Plan'},
-                  {id:'stereo',     label:'🌐 Stereo Analyzer'},
-                  {id:'completion', label:'✅ Completion Engine'},
-                ].find(m => m.id === mode)?.label || mode}
-              </span>
-            </div>
-          </div>
-        )}
+        {/* ── HOME SCREEN — only visible when no mode is active ────────────────
+              To reorder tools: move the button blocks around inside this fragment.
+              To add a new tool: add to MODES[] array AND add a case in buildPrompt().
+              To remove a tool: delete its button block here (MODES[] entry optional).
+        ── */}
 
         {/* ── Completion Engine UI ── */}
         {mode === 'completion' && (
@@ -2317,6 +2328,104 @@ export default function App() {
 
           </div>
         )}
+        
+        {!mode && (<>
+          <div className="grid grid-cols-2 gap-3 mb-3"> 
+            {MODES.map(m => (
+              <button
+                key={m.id}
+                onClick={() => resetMode(m.id)}
+                className={`p-4 rounded-xl text-left border transition-all ${
+                  m.id === 'daw' ? 'col-span-2' : ''
+                } border-gray-800 bg-gray-900 hover:border-gray-600`}
+              >
+                <div className="font-semibold mb-0.5">{m.label}</div>
+                <div className="text-sm text-gray-400">{m.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* DJ tools */}
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <button onClick={() => resetMode('dj')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
+              <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
+              <div className="text-sm text-gray-400">Visual journey map to get started</div>
+            </button>
+            <button onClick={() => resetMode('djset')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
+              <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
+              <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
+            </button>
+          </div>
+
+          {/* Visual Tools */}
+          <button onClick={() => resetMode('visuals')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
+                <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
+            </div>
+          </button>
+
+          {/* Release Plan */}
+          <button onClick={() => resetMode('release')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg">🚀 Release Plan</div>
+                <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
+              </div>
+              <div className="text-2xl opacity-30">→</div>
+            </div>
+          </button>
+
+          {/* Completion Engine — featured full-width */}
+          <button
+            onClick={() => { resetCompletionSession(); resetMode('completion') }}
+            className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg text-green-300">✅ Completion Engine</div>
+                <div className="text-sm text-gray-400 mt-0.5">Turn your loop into a finished track — 5 guided stages, no escape hatches</div>
+              </div>
+              <div className="text-right shrink-0 ml-3">
+                {completionHistory.length > 0 ? (
+                  <div className="text-xs text-green-500 font-bold">🏆 {completionHistory.length} finished</div>
+                ) : (
+                  <div className="text-xs text-green-700 font-medium">5 stages</div>
+                )}
+                <div className="text-2xl opacity-30 mt-0.5">→</div>
+              </div>
+            </div>
+          </button>
+        </>)}
+
+        {/* ── Active mode — back button shown instead of grid ── */}
+        {mode && (
+          <div className="flex items-center gap-3 mb-4">
+            <button
+              onClick={() => resetMode(null)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-sm text-gray-400 hover:text-white transition-all"
+            >
+              ← All tools
+            </button>
+            <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-xl">
+              <span className="text-sm font-medium text-purple-300">
+                {[...MODES,
+                  {id:'dj',         label:'🎛️ DJ Roadmap'},
+                  {id:'djset',      label:'📋 DJ Set Planner'},
+                  {id:'visuals',    label:'🎨 Visual Tools & VFX'},
+                  {id:'release',    label:'🚀 Release Plan'},
+                  {id:'stereo',     label:'🌐 Stereo Analyzer'},
+                  {id:'completion', label:'✅ Completion Engine'},
+                ].find(m => m.id === mode)?.label || mode}
+              </span>
+            </div>
+          </div>
+        )}
+
+        
 
         {/* ── Input panel ── */}
         {mode && mode !== 'completion' && (
