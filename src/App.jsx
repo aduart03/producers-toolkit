@@ -21,6 +21,7 @@ const LOADING_MSGS = {
   vocals:   ['Thinking...', 'Building the chain...', 'Setting the gain staging...', 'Tuning the processing...'],
   master:   ['Thinking...', 'Checking the chain...', 'Analysing the headroom...', 'Preparing the master...'],
   release:  ['Thinking...', 'Building the timeline...', 'Finding the right playlists...', 'Mapping the rollout...'],
+  stereo:   ['Thinking...', 'Measuring the field...', 'Plotting the spectrum...', 'Mapping instrument positions...'],
 }
 
 // ─── Follow-up suggestions per mode ──────────────────────────────────────────
@@ -41,6 +42,7 @@ const FOLLOW_UPS = {
   vocals:   ['Give me free plugin alternatives for this chain', 'How do I set up the parallel compression properly?', 'How do I get more width without it sounding fake?', 'How do I make the vocal sit better in a busy mix?'],
   master:   ['What LUFS should I target for Spotify/streaming?', 'How do I get more loudness without squashing the dynamics?', 'Give me a free alternative mastering chain', 'How do I check my master on different systems?'],
   release:  ['Write me a Spotify editorial pitch for this track', 'Which UK garage blogs and playlists should I submit to?', 'Give me 7 days of Instagram content ideas for this release', 'How do I get on Spotify\'s algorithmic playlists?'],
+  stereo:   ['How do I widen my synths without losing mono compatibility?', 'What causes the sub bass to sound off-center?', 'How do I tighten the stereo field for club systems?', 'What plugins can I use for mid/side processing?'],
 }
 
 // ─── Streaming API call ───────────────────────────────────────────────────────
@@ -121,6 +123,7 @@ const MODES = [
   { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
   { id: 'vocals',    label: '🎤 Vocal Chain',         desc: 'Pro chain from a working producer' },
   { id: 'master',   label: '🎛️ Master Chain',        desc: 'Full mastering chain breakdown' },
+  { id: 'stereo',   label: '🌐 Stereo Analyzer',     desc: 'Map your mix\'s 3D stereo field'  },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -308,6 +311,169 @@ const analyzeAudioFile = async (file) => {
   }
 }
 
+// ─── Stereo field analysis ────────────────────────────────────────────────────
+const analyzeStereoField = async (file) => {
+  const arrayBuffer = await file.arrayBuffer()
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  let audioBuffer
+  try {
+    audioBuffer = await audioCtx.decodeAudioData(arrayBuffer)
+  } catch {
+    await audioCtx.close()
+    throw new Error('Could not decode audio — try MP3 or WAV.')
+  }
+  const ch0    = audioBuffer.getChannelData(0)
+  const ch1    = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : ch0
+  const sr     = audioBuffer.sampleRate
+  const isMono = audioBuffer.numberOfChannels === 1
+
+  const winSize = Math.min(8192, ch0.length)
+  const mid     = Math.floor((ch0.length - winSize) / 2)
+  const applyHann = (seg) => {
+    const w = new Float32Array(winSize)
+    for (let i = 0; i < winSize; i++) w[i] = seg[i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / (winSize - 1)))
+    return w
+  }
+  const winL = applyHann(ch0.slice(mid, mid + winSize))
+  const winR = applyHann(ch1.slice(mid, mid + winSize))
+
+  const goertzel = (samples, freq) => {
+    const N = samples.length
+    const k = Math.round(N * freq / sr)
+    if (k <= 0 || k >= N / 2) return 0
+    const coeff = 2 * Math.cos(2 * Math.PI * k / N)
+    let s1 = 0, s2 = 0
+    for (let i = 0; i < N; i++) { const s = samples[i] + coeff * s1 - s2; s2 = s1; s1 = s }
+    return Math.sqrt(Math.max(0, s1 * s1 + s2 * s2 - s1 * s2 * coeff))
+  }
+
+  const STEREO_BANDS = [
+    { name: 'Sub Bass',   freq: 50    },
+    { name: 'Kick/Bass',  freq: 120   },
+    { name: 'Low Mids',   freq: 350   },
+    { name: 'Mids',       freq: 1000  },
+    { name: 'Upper Mids', freq: 3500  },
+    { name: 'Presence',   freq: 9000  },
+    { name: 'Air',        freq: 16000 },
+  ]
+  const bandData = STEREO_BANDS.map(band => {
+    const eL    = goertzel(winL, band.freq)
+    const eR    = goertzel(winR, band.freq)
+    const total = eL + eR
+    const pan   = (total > 0.0001 && !isMono) ? Math.round(((eR - eL) / total) * 100) : 0
+    return { name: band.name, freq: band.freq, pan, eL, eR, energy: total / 2 }
+  })
+
+  const limit = Math.min(ch0.length, 80000)
+  let sumLR = 0, sumL2 = 0, sumR2 = 0
+  for (let i = 0; i < limit; i++) { sumLR += ch0[i]*ch1[i]; sumL2 += ch0[i]**2; sumR2 += ch1[i]**2 }
+  const corr  = sumLR / Math.sqrt(Math.max(sumL2 * sumR2, 1e-10))
+  const overallWidth = isMono ? 0 : Math.round((1 - Math.abs(corr)) * 100)
+
+  await audioCtx.close()
+  return { filename: file.name, duration: audioBuffer.duration.toFixed(1), isMono, overallWidth, bandData }
+}
+
+const buildStereoPrompt = (analysis, genre) => {
+  const bandStr = analysis.bandData.map(b =>
+    `${b.name}: pan=${b.pan > 0 ? '+' : ''}${b.pan} (${b.pan < -25 ? 'LEFT' : b.pan > 25 ? 'RIGHT' : 'CENTER'}), energy=${b.energy.toFixed(4)}`
+  ).join('\n')
+  return `You are a professional mixing engineer analyzing a track's stereo field.
+
+MEASURED DATA:
+File: ${analysis.filename} | Duration: ${analysis.duration}s | ${analysis.isMono ? 'MONO' : 'Stereo'} | Overall width: ${analysis.overallWidth}%
+Per-band positions (pan: -100=hard left, 0=center, +100=hard right):
+${bandStr}
+Genre: ${genre || 'electronic music (UK garage / house / techno)'}
+
+Map each frequency band to the most likely instrument for this genre. Output ONLY these lines — no headers, no extra text:
+ACTUAL: [instrument name]|[pan -100 to 100]|[depth 0-100 where 0=front/dry 100=back/wet]|[size S/M/L]
+(one ACTUAL line per band, 7 total)
+IDEAL: [instrument name]|[pan]|[depth]|[size]
+(one IDEAL line per band, 7 total — same instruments but at optimal positions)
+FEEDBACK: [One actionable sentence about the most important stereo field fix]
+
+Band → instrument mapping for ${genre || 'electronic music'}:
+Sub Bass (50Hz) → "808 / Sub" — Kick/Bass (120Hz) → "Kick" or "Bass" — Low Mids (350Hz) → "Pads/Body" — Mids (1kHz) → "Synth Lead" or "Vocals" — Upper Mids (3.5kHz) → "Hi-Hats/Snare" — Presence (9kHz) → "Cymbals/Tops" — Air (16kHz) → "Room/Air"
+Output ONLY the 7 ACTUAL lines, 7 IDEAL lines, and 1 FEEDBACK line.`
+}
+
+const parseStereoField = (text) => {
+  const actual = [], ideal = []
+  let feedback = ''
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (t.startsWith('ACTUAL:')) {
+      const p = t.slice(7).trim().split('|')
+      if (p.length >= 4) actual.push({ name: p[0].trim(), pan: parseInt(p[1]) || 0, depth: parseInt(p[2]) || 50, size: (p[3].trim()[0] || 'M').toUpperCase() })
+    } else if (t.startsWith('IDEAL:')) {
+      const p = t.slice(6).trim().split('|')
+      if (p.length >= 4) ideal.push({ name: p[0].trim(), pan: parseInt(p[1]) || 0, depth: parseInt(p[2]) || 50, size: (p[3].trim()[0] || 'M').toUpperCase() })
+    } else if (t.startsWith('FEEDBACK:')) {
+      feedback = t.slice(9).trim()
+    }
+  }
+  return (actual.length > 0 || ideal.length > 0) ? { actual, ideal, feedback } : null
+}
+
+// ─── Stereo field panel component ────────────────────────────────────────────
+const STEREO_COLORS = ['#a78bfa','#60a5fa','#34d399','#f97316','#f472b6','#fb923c','#4ade80','#c084fc','#38bdf8']
+
+const StereoFieldPanel = ({ instruments, title, accent = 'purple' }) => {
+  const panToX   = (pan)   => 22 + ((Math.max(-100, Math.min(100, pan)) + 100) / 200) * 196
+  const depthToY = (depth) => 195 - (Math.max(0, Math.min(100, depth)) / 100) * 172
+  const borderCls = accent === 'blue' ? 'border-blue-500/40' : 'border-purple-500/40'
+  const titleCls  = accent === 'blue' ? 'text-blue-300' : 'text-purple-300'
+  const gradId    = `fg_${accent}`
+  return (
+    <div className="flex-1 min-w-0">
+      <div className={`text-xs font-bold mb-2 uppercase tracking-wider ${titleCls}`}>{title}</div>
+      <svg viewBox="0 0 240 220" className={`w-full rounded-xl border ${borderCls}`} style={{ background: '#070710' }}>
+        <defs>
+          <radialGradient id={gradId} cx="50%" cy="58%" r="55%">
+            <stop offset="0%"   stopColor={accent === 'blue' ? '#0f1e35' : '#130f2a'} stopOpacity="1"/>
+            <stop offset="100%" stopColor="#050508" stopOpacity="1"/>
+          </radialGradient>
+        </defs>
+        <rect width="240" height="220" fill={`url(#${gradId})`} rx="8"/>
+
+        {/* Oval representing stereo space */}
+        <ellipse cx="120" cy="165" rx="100" ry="42" fill="none" stroke="#1f2937" strokeWidth="1.5" strokeDasharray="5,3"/>
+        <ellipse cx="120" cy="130" rx="100" ry="90" fill="none" stroke="#111827" strokeWidth="1" strokeDasharray="3,4"/>
+
+        {/* Center crosshairs */}
+        <line x1="120" y1="8"  x2="120" y2="212" stroke="#1f2937" strokeWidth="1"/>
+        <line x1="8"   y1="160" x2="232" y2="160" stroke="#1f2937" strokeWidth="1"/>
+
+        {/* Axis labels */}
+        <text x="12"  y="215" fill="#374151" fontSize="8" fontFamily="monospace">L</text>
+        <text x="224" y="215" fill="#374151" fontSize="8" fontFamily="monospace">R</text>
+        <text x="115" y="215" fill="#374151" fontSize="8" fontFamily="monospace">C</text>
+        <text x="10"  y="14"  fill="#374151" fontSize="7" fontFamily="monospace">BACK</text>
+        <text x="8"   y="158" fill="#374151" fontSize="7" fontFamily="monospace">FRONT</text>
+
+        {/* Instruments */}
+        {instruments.map((inst, i) => {
+          const x   = panToX(inst.pan)
+          const y   = depthToY(inst.depth)
+          const r   = inst.size === 'L' ? 11 : inst.size === 'S' ? 5 : 8
+          const col = STEREO_COLORS[i % STEREO_COLORS.length]
+          const lbl = inst.name.length > 10 ? inst.name.slice(0, 9) + '…' : inst.name
+          return (
+            <g key={i}>
+              <circle cx={x} cy={y} r={r + 5} fill={col} opacity="0.07"/>
+              <circle cx={x} cy={y} r={r}     fill={col} opacity="0.22"/>
+              <circle cx={x} cy={y} r={r / 2.2} fill={col} opacity="0.9"/>
+              <text x={x} y={y - r - 3} fill={col} fontSize="7.5" fontFamily="ui-sans-serif,system-ui,sans-serif"
+                textAnchor="middle" fontWeight="700">{lbl}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 const analysisToPrompt = (analysis, instrumentType, extraDesc) => {
   const bandStr = analysis.bands.map(b => `  ${b.name}: ${b.pct}%`).join('\n')
   return `You are a professional mixing engineer. Here is MEASURED data from an audio file — use these actual numbers to give specific mixing advice.
@@ -351,6 +517,135 @@ MIXER: Ch1:[name]|Ch2:[name]|Ch3:[name]|Ch4:[name]|Ch5:[name]
 
 Rules: Chord list only: ${CHORD_LIST}. Note format: A4 C#3 Bb2 etc. Match the exact key and BPM from the track description. Output nothing except the 5 lines above.`
 }
+
+// ─── Completion Engine — constants ───────────────────────────────────────────
+const COMPLETION_STAGES = ['Lock-In', 'Structure', 'Decisions', 'Feedback', 'Export']
+
+const EXPORT_CHECKLIST = [
+  'Master bus limiter is on',
+  'Exported at 44.1kHz or 48kHz (not 96kHz)',
+  'File named correctly (e.g. MAYVBLU_TrackName_Final.wav)',
+  'Checked on phone speakers or AirPods',
+  'Sent to at least one person for a listen',
+]
+
+// ─── Completion Engine — prompt builders ─────────────────────────────────────
+const buildIdeaLockPrompt = (description, audioAnalysis) => {
+  const audioBlock = audioAnalysis
+    ? `\nAUDIO MEASUREMENTS: Duration ${audioAnalysis.duration} | ${audioAnalysis.channels} | Peak ${audioAnalysis.peakDb} | Stereo ${audioAnalysis.stereoWidth} | Dominant bands: ${audioAnalysis.bands.filter(b => b.pct > 40).map(b => b.name).join(', ') || 'mid-range'}`
+    : ''
+  return `You are a music production coach. A producer wants to commit to finishing a track. Analyse what they have and write a commitment statement that locks them into this idea — no escape.
+
+Their loop/vibe: "${description}"${audioBlock}
+
+Output EXACTLY these lines (no extra text before or after):
+COMMITMENT: [Bold, specific 2-sentence "this is your track" statement. Name the exact genre, energy, and key sonic elements. No generic phrases.]
+BPM: [single number — best estimate or suggestion]
+KEY: [musical key and scale, e.g. A minor, F# minor, C major]
+VIBE: [exactly 3 words, e.g. dark paranoid rolling]
+DIRECTION: [One short paragraph — what makes this loop worth finishing. What's working. Why it has real potential. Be direct and honest, not hype.]`
+}
+
+const buildStructurePrompt = (commitment, bpm, vibe) => {
+  return `You are a music producer turning a loop into a complete arrangement skeleton.
+
+Track: "${commitment}" | BPM: ${bpm} | Vibe: ${vibe}
+
+Output EXACTLY this (no other text before or after):
+STRUCTURE:
+Intro: [bars] bars — [what happens here]
+Build: [bars] bars — [what happens]
+Drop: [bars] bars — [what happens]
+Breakdown: [bars] bars — [what happens]
+Drop 2: [bars] bars — [what happens]
+Outro: [bars] bars — [what happens]
+TOTAL: [total bars] bars ≈ [min:sec] at ${bpm} BPM
+
+TIPS:
+[3 specific FL Studio arrangement tips for this exact track — which elements to mute, filter, automate, or add in each section to create movement. Reference the BPM and vibe.]`
+}
+
+const buildForcedDecisionsPrompt = (commitment, structure, bpm, vibe) => {
+  return `You are a music production coach helping a producer eliminate decision fatigue. Generate exactly 3 forced decisions. Each must be specific, concrete, and force a single choice.
+
+Track: "${commitment}" | BPM: ${bpm} | Vibe: ${vibe}
+Structure overview: ${structure.slice(0, 300)}
+
+Output EXACTLY 3 blocks with this format (no intros, no outros, no extra text):
+
+DECISION_1:
+QUESTION: [Direct, specific question — e.g. "Which kick do you keep — the 808-punchy one or the clicky techno one?"]
+OPTION_A: [Concrete specific option]
+OPTION_B: [Different concrete option]
+
+DECISION_2:
+QUESTION: [Different area — e.g. about arrangement, a sound choice, or energy level]
+OPTION_A: [Specific option]
+OPTION_B: [Different option]
+
+DECISION_3:
+QUESTION: [Third area — transition, texture, or final element]
+OPTION_A: [Specific option]
+OPTION_B: [Different option]
+
+Make every decision specific to this genre and BPM. No generic questions like "which direction do you prefer?"`
+}
+
+const buildFeedbackPrompt = (commitment, decisions, structure) => {
+  const decisionsStr = decisions.length > 0
+    ? decisions.map((d, i) => `${i + 1}. ${d}`).join('\n')
+    : 'No decisions logged.'
+  return `You are a professional producer giving critical feedback. Give EXACTLY 3 pieces — no more, no less.
+
+Track: "${commitment}"
+Structure: ${structure.slice(0, 250)}
+Producer's decisions:
+${decisionsStr}
+
+Output ONLY:
+FEEDBACK_1: [THE MOST CRITICAL FIX — one specific, actionable sentence. This has the biggest impact on whether the track is done.]
+FEEDBACK_2: [SECOND MOST IMPORTANT — specific, different area from #1.]
+FEEDBACK_3: [NICE-TO-HAVE — lower priority, worth doing if time allows, not blocking.]
+
+No compliments. No padding. No "sounds great". Just the 3 fixes. Reference the actual structure and decisions.`
+}
+
+// ─── Completion Engine — parsers ──────────────────────────────────────────────
+const parseIdeaLock = (text) => {
+  const commitment = text.match(/COMMITMENT:\s*(.+?)(?=\nBPM:)/is)?.[1]?.trim()
+  const bpm        = parseInt(text.match(/BPM:\s*(\d+)/i)?.[1] || '130')
+  const key        = text.match(/KEY:\s*([^\n]+)/i)?.[1]?.trim() || 'A minor'
+  const vibe       = text.match(/VIBE:\s*([^\n]+)/i)?.[1]?.trim() || ''
+  const direction  = text.match(/DIRECTION:\s*([\s\S]+?)(?=\n[A-Z]+:|$)/i)?.[1]?.trim()
+                  || text.match(/DIRECTION:\s*([\s\S]+?)$/i)?.[1]?.trim()
+  return commitment ? { commitment, bpm, key, vibe, direction } : null
+}
+
+const parseStructure = (text) => {
+  const structure = text.match(/STRUCTURE:\s*([\s\S]*?)(?=TIPS:|$)/i)?.[1]?.trim() || text.trim()
+  const tips      = text.match(/TIPS:\s*([\s\S]*?)$/i)?.[1]?.trim() || ''
+  return { structure, tips }
+}
+
+const parseForcedDecisions = (text) => {
+  const decisions = []
+  for (let i = 1; i <= 3; i++) {
+    const endPattern = i < 3 ? `DECISION_${i + 1}:` : '$'
+    const blockRe    = new RegExp(`DECISION_${i}:[\\s\\S]*?(?=${endPattern})`, 'i')
+    const block      = text.match(blockRe)?.[0] || ''
+    const question   = block.match(/QUESTION:\s*([^\n]+)/i)?.[1]?.trim()
+    const optionA    = block.match(/OPTION_A:\s*([^\n]+)/i)?.[1]?.trim()
+    const optionB    = block.match(/OPTION_B:\s*([^\n]+)/i)?.[1]?.trim()
+    if (question && optionA && optionB) decisions.push({ question, optionA, optionB })
+  }
+  return decisions
+}
+
+const parseFeedback = (text) => [
+  text.match(/FEEDBACK_1:\s*([^\n]+)/i)?.[1]?.trim(),
+  text.match(/FEEDBACK_2:\s*([^\n]+)/i)?.[1]?.trim(),
+  text.match(/FEEDBACK_3:\s*([^\n]+)/i)?.[1]?.trim(),
+].filter(Boolean)
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 const buildPrompt = ({ mode, input, chordType, midiType, beginnerMode, pedalNote, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy }) => {
@@ -911,12 +1206,43 @@ export default function App() {
   const resultRef       = useRef(null)
   const [generatingMidi, setGeneratingMidi] = useState(false)
 
+  // Stereo field analyzer
+  const [stereoFile,      setStereoFile]      = useState(null)
+  const [stereoAnalysis,  setStereoAnalysis]  = useState(null)
+  const [analysingStereo, setAnalysingStereo] = useState(false)
+  const [stereoError,     setStereoError]     = useState('')
+  const [stereoGenre,     setStereoGenre]     = useState('')
+  const [stereoFieldData, setStereoFieldData] = useState(null)
+  const stereoFileRef = useRef(null)
+
+  // Completion Engine state
+  const [completionStage,           setCompletionStage]           = useState(0)
+  const [completionTrack,           setCompletionTrack]           = useState(null)
+  const [completionInput,           setCompletionInput]           = useState('')
+  const [completionResult,          setCompletionResult]          = useState('')
+  const [completionLoading,         setCompletionLoading]         = useState(false)
+  const [completionDecisions,       setCompletionDecisions]       = useState([])
+  const [completionCurrentDecision, setCompletionCurrentDecision] = useState(0)
+  const [completionDecisionOptions, setCompletionDecisionOptions] = useState([])
+  const [completionFile,            setCompletionFile]            = useState(null)
+  const [completionAnalysis,        setCompletionAnalysis]        = useState(null)
+  const [completionChecklist,       setCompletionChecklist]       = useState([false,false,false,false,false])
+  const [completionShowCelebration, setCompletionShowCelebration] = useState(false)
+  const [completionTrackName,       setCompletionTrackName]       = useState('')
+  const [completionHistory,         setCompletionHistory]         = useState(() => {
+    try { return JSON.parse(localStorage.getItem('completionHistory') || '[]') } catch { return [] }
+  })
+  const completionFileRef = useRef(null)
+
   const [chordHistory, setChordHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('chordHistory') || '[]') } catch { return [] }
   })
   useEffect(() => {
     localStorage.setItem('chordHistory', JSON.stringify(chordHistory))
   }, [chordHistory])
+  useEffect(() => {
+    localStorage.setItem('completionHistory', JSON.stringify(completionHistory))
+  }, [completionHistory])
 
   // ── Scroll result into view when generation starts ──
   useEffect(() => {
@@ -956,6 +1282,22 @@ export default function App() {
       setAudioError(err.message)
     } finally {
       setAnalysingAudio(false)
+    }
+  }
+
+  const handleStereoFileSelect = async (file) => {
+    if (!file) return
+    setStereoFile(file)
+    setStereoAnalysis(null)
+    setStereoError('')
+    setAnalysingStereo(true)
+    try {
+      const analysis = await analyzeStereoField(file)
+      setStereoAnalysis(analysis)
+    } catch (err) {
+      setStereoError(err.message)
+    } finally {
+      setAnalysingStereo(false)
     }
   }
 
@@ -1025,6 +1367,38 @@ export default function App() {
   // ── Initial generate ──
   const handleGenerate = async () => {
     if (!mode) return
+
+    // ── Stereo mode: dedicated flow ──────────────────────────────────────────
+    if (mode === 'stereo') {
+      if (!stereoAnalysis) return
+      setLoading(true)
+      setResult('')
+      setStereoFieldData(null)
+      let accumulated = ''
+      try {
+        const prompt = buildStereoPrompt(stereoAnalysis, stereoGenre)
+        await callAI([{ role: 'user', content: prompt }], (chunk) => { accumulated += chunk })
+        const parsed = parseStereoField(accumulated)
+        if (parsed) {
+          setStereoFieldData(parsed)
+          setResult(parsed.feedback
+            ? `**Stereo Field Analysis**\n\n${parsed.feedback}\n\nThe 3D map below shows your actual stereo field vs the ideal layout for your genre.`
+            : 'Analysis complete — see the stereo field map below.')
+        } else {
+          setResult('Could not parse stereo data — try again.')
+        }
+        setConversationHistory([
+          { role: 'user', content: prompt },
+          { role: 'assistant', content: accumulated },
+        ])
+      } catch (err) {
+        setResult('Error: ' + err.message)
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
     const prompt   = buildPrompt({ mode, input, chordType, midiType, beginnerMode, pedalNote, selectedSynth, sampleInstrument, sampleDesc, sampleAnalysis, dawMode, djSetEvent, djSetDuration, djSetEnergy })
     const messages = [{ role: 'user', content: prompt }]
     const response = await runGeneration(messages)
@@ -1082,12 +1456,183 @@ export default function App() {
 
   const canGenerate = mode === 'sample'
     ? (sampleAnalysis != null || sampleDesc.trim().length > 0)
-    : input.trim().length > 0
+    : mode === 'stereo'
+      ? stereoAnalysis != null
+      : input.trim().length > 0
+
+  // Helper: fully reset completion engine session (keeps history)
+  const resetCompletionSession = () => {
+    setCompletionStage(0); setCompletionTrack(null); setCompletionInput(''); setCompletionResult('')
+    setCompletionDecisions([]); setCompletionCurrentDecision(0); setCompletionDecisionOptions([])
+    setCompletionFile(null); setCompletionAnalysis(null)
+    setCompletionChecklist([false,false,false,false,false]); setCompletionShowCelebration(false)
+    setCompletionTrackName('')
+  }
 
   const resetMode = (id) => {
     setMode(id); setInput(''); setResult(''); setMidiData(null)
     setSampleFile(null); setSampleAnalysis(null); setAudioError('')
     setConversationHistory([]); setFollowUpInput(''); setDjRoadmapData(null)
+    setStereoFile(null); setStereoAnalysis(null); setStereoError(''); setStereoFieldData(null); setStereoGenre('')
+    if (id !== 'completion') resetCompletionSession()
+  }
+
+  // ── Completion Engine handlers ──────────────────────────────────────────────
+
+  // Stage 0 → 1: Begin — run idea lock AI
+  const handleBeginCompletion = async () => {
+    if (!completionInput.trim()) return
+    setCompletionStage(1)
+    setCompletionLoading(true)
+    setCompletionResult('')
+    setCompletionTrack(null)
+    try {
+      const prompt = buildIdeaLockPrompt(completionInput, completionAnalysis)
+      let text = ''
+      await callAI([{ role: 'user', content: prompt }], (chunk) => { text += chunk })
+      const parsed = parseIdeaLock(text)
+      if (parsed) {
+        setCompletionTrack({ name: completionTrackName.trim() || 'Untitled Track', ...parsed })
+        setCompletionResult(text)
+      } else {
+        setCompletionResult(text || 'Could not parse response — try again.')
+      }
+    } catch (err) {
+      setCompletionResult('Error: ' + err.message)
+    } finally {
+      setCompletionLoading(false)
+    }
+  }
+
+  // Stage 1 → 2: Lock it in
+  const handleLockIn = () => {
+    setCompletionStage(2)
+    setCompletionResult('')
+  }
+
+  // Stage 2: Generate structure
+  const handleGenerateStructure = async () => {
+    if (!completionTrack) return
+    setCompletionLoading(true)
+    setCompletionResult('')
+    try {
+      const prompt = buildStructurePrompt(completionTrack.commitment, completionTrack.bpm, completionTrack.vibe)
+      let text = ''
+      await callAI([{ role: 'user', content: prompt }], (chunk) => { text += chunk })
+      const parsed = parseStructure(text)
+      setCompletionTrack(t => ({ ...t, structure: parsed.structure, structureTips: parsed.tips }))
+      setCompletionResult(text)
+    } catch (err) {
+      setCompletionResult('Error: ' + err.message)
+    } finally {
+      setCompletionLoading(false)
+    }
+  }
+
+  // Stage 2 → 3: Confirm structure
+  const handleConfirmStructure = () => {
+    setCompletionStage(3)
+    setCompletionResult('')
+  }
+
+  // Stage 3: Get 3 forced decisions from AI
+  const handleGetDecisions = async () => {
+    if (!completionTrack) return
+    setCompletionLoading(true)
+    setCompletionDecisionOptions([])
+    setCompletionCurrentDecision(0)
+    try {
+      const prompt = buildForcedDecisionsPrompt(
+        completionTrack.commitment,
+        completionTrack.structure || '',
+        completionTrack.bpm,
+        completionTrack.vibe,
+      )
+      let text = ''
+      await callAI([{ role: 'user', content: prompt }], (chunk) => { text += chunk })
+      const decisions = parseForcedDecisions(text)
+      if (decisions.length > 0) {
+        setCompletionDecisionOptions(decisions)
+      } else {
+        setCompletionResult('Could not parse decisions — try again.')
+      }
+    } catch (err) {
+      setCompletionResult('Error: ' + err.message)
+    } finally {
+      setCompletionLoading(false)
+    }
+  }
+
+  // Stage 3: Confirm one decision, advance or move to stage 4
+  const handleConfirmDecision = (choice) => {
+    const current = completionDecisionOptions[completionCurrentDecision]
+    if (!current) return
+    const entry = `${current.question} → ${choice}`
+    const isLast = completionCurrentDecision >= completionDecisionOptions.length - 1
+    setCompletionDecisions(prev => [...prev, entry])
+    if (isLast) {
+      setCompletionStage(4)
+      setCompletionResult('')
+      setCompletionInput('')
+    } else {
+      setCompletionCurrentDecision(d => d + 1)
+    }
+  }
+
+  // Stage 4: Run feedback pass
+  const handleGetFeedback = async () => {
+    if (!completionTrack) return
+    setCompletionLoading(true)
+    setCompletionResult('')
+    try {
+      const draftNote = completionInput.trim() ? `\nProducer's notes on current state: ${completionInput}` : ''
+      const prompt = buildFeedbackPrompt(
+        completionTrack.commitment,
+        completionDecisions,
+        (completionTrack.structure || '') + draftNote,
+      )
+      let text = ''
+      await callAI([{ role: 'user', content: prompt }], (chunk) => { text += chunk })
+      const feedback = parseFeedback(text)
+      setCompletionTrack(t => ({ ...t, feedback: feedback.length > 0 ? feedback : null }))
+      setCompletionResult(text)
+    } catch (err) {
+      setCompletionResult('Error: ' + err.message)
+    } finally {
+      setCompletionLoading(false)
+    }
+  }
+
+  // Stage 4 → 5: Move to export
+  const handleMoveToExport = () => {
+    setCompletionStage(5)
+    setCompletionResult('')
+  }
+
+  // Stage 5: Toggle checklist item
+  const handleChecklistToggle = (i) => {
+    setCompletionChecklist(prev => prev.map((v, idx) => idx === i ? !v : v))
+  }
+
+  // Stage 5: Mark finished + celebrate
+  const handleMarkFinished = () => {
+    if (!completionChecklist.every(Boolean) || !completionTrack) return
+    const finished = {
+      id:           Date.now(),
+      name:         completionTrack.name,
+      bpm:          completionTrack.bpm,
+      key:          completionTrack.key,
+      vibe:         completionTrack.vibe,
+      dateFinished: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    }
+    setCompletionHistory(prev => [finished, ...prev])
+    setCompletionStage(6)
+    setCompletionShowCelebration(true)
+  }
+
+  // Stage 6 → start new
+  const handleCompletionNewTrack = () => {
+    resetCompletionSession()
   }
 
   return (
@@ -1220,6 +1765,27 @@ export default function App() {
               <div className="text-2xl opacity-30">→</div>
             </div>
           </button>
+
+          {/* Completion Engine — featured full-width */}
+          <button
+            onClick={() => { resetCompletionSession(); resetMode('completion') }}
+            className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg text-green-300">✅ Completion Engine</div>
+                <div className="text-sm text-gray-400 mt-0.5">Turn your loop into a finished track — 5 guided stages, no escape hatches</div>
+              </div>
+              <div className="text-right shrink-0 ml-3">
+                {completionHistory.length > 0 ? (
+                  <div className="text-xs text-green-500 font-bold">🏆 {completionHistory.length} finished</div>
+                ) : (
+                  <div className="text-xs text-green-700 font-medium">5 stages</div>
+                )}
+                <div className="text-2xl opacity-30 mt-0.5">→</div>
+              </div>
+            </div>
+          </button>
         </>)}
 
         {/* ── Active mode — back button shown instead of grid ── */}
@@ -1234,18 +1800,526 @@ export default function App() {
             <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-xl">
               <span className="text-sm font-medium text-purple-300">
                 {[...MODES,
-                  {id:'dj',      label:'🎛️ DJ Roadmap'},
-                  {id:'djset',   label:'📋 DJ Set Planner'},
-                  {id:'visuals', label:'🎨 Visual Tools & VFX'},
-                  {id:'release', label:'🚀 Release Plan'},
+                  {id:'dj',         label:'🎛️ DJ Roadmap'},
+                  {id:'djset',      label:'📋 DJ Set Planner'},
+                  {id:'visuals',    label:'🎨 Visual Tools & VFX'},
+                  {id:'release',    label:'🚀 Release Plan'},
+                  {id:'stereo',     label:'🌐 Stereo Analyzer'},
+                  {id:'completion', label:'✅ Completion Engine'},
                 ].find(m => m.id === mode)?.label || mode}
               </span>
             </div>
           </div>
         )}
 
+        {/* ── Completion Engine UI ── */}
+        {mode === 'completion' && (
+          <div className="space-y-4">
+
+            {/* Progress bar — visible while in stages 1-5 */}
+            {completionStage >= 1 && completionStage <= 5 && completionTrack && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-white font-semibold truncate max-w-[60%]">{completionTrack.name}</span>
+                  <span className="text-xs text-green-500 font-mono font-bold">{completionStage * 20}%</span>
+                </div>
+                <div className="flex gap-1 mb-2">
+                  {[1,2,3,4,5].map(s => (
+                    <div key={s} className={`flex-1 h-2 rounded-full transition-all duration-500 ${
+                      s < completionStage ? 'bg-green-500' : s === completionStage ? 'bg-purple-500' : 'bg-gray-700'
+                    }`} />
+                  ))}
+                </div>
+                <div className="flex justify-between">
+                  {COMPLETION_STAGES.map((label, i) => (
+                    <span key={label} className={`text-xs font-medium ${
+                      i + 1 < completionStage ? 'text-green-500' :
+                      i + 1 === completionStage ? 'text-purple-300' : 'text-gray-600'
+                    }`}>
+                      {i + 1 < completionStage ? '✓ ' : ''}{label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── STAGE 0 — Entry ── */}
+            {completionStage === 0 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <h2 className="font-bold text-lg text-white mb-1">✅ Completion Engine</h2>
+                  <p className="text-sm text-gray-400 leading-relaxed">Stop restarting. Turn your loop into a finished track — 5 locked stages, one at a time.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Track name</label>
+                  <input
+                    value={completionTrackName}
+                    onChange={e => setCompletionTrackName(e.target.value)}
+                    placeholder="e.g. So High, Untitled Loop, Late Night Rough…"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-green-600 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Describe your loop or current idea</label>
+                  <textarea
+                    value={completionInput}
+                    onChange={e => setCompletionInput(e.target.value)}
+                    placeholder="e.g. 4-bar UK garage loop, rolling 808 bassline, Em chord pad, 130 BPM. Got the drop but no arrangement yet. Feels dark and late-night. Keep starting over on this one…"
+                    rows={3}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-600 focus:outline-none focus:border-green-600 resize-none text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">
+                    Upload loop audio <span className="text-gray-600">(optional — adds real frequency analysis)</span>
+                  </label>
+                  <input ref={completionFileRef} type="file" accept="audio/*" className="hidden"
+                    onChange={async e => {
+                      const f = e.target.files[0]
+                      if (!f) return
+                      setCompletionFile(f)
+                      try { const a = await analyzeAudioFile(f); setCompletionAnalysis(a) } catch {}
+                    }}
+                  />
+                  <button
+                    onClick={() => completionFileRef.current?.click()}
+                    className={`w-full p-3 rounded-xl border-2 border-dashed transition-colors text-center ${
+                      completionFile ? 'border-green-600/60 bg-green-950/20' : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+                    }`}
+                  >
+                    {completionFile
+                      ? <span className="text-green-400 text-sm font-medium">{completionFile.name} ✓</span>
+                      : <span className="text-gray-500 text-sm">Click to upload (MP3, WAV)</span>
+                    }
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleBeginCompletion}
+                  disabled={!completionInput.trim()}
+                  className="w-full py-3 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl font-bold text-white transition-all"
+                >
+                  Begin Stage 1 →
+                </button>
+
+                {/* Finished songs list */}
+                {completionHistory.length > 0 && (
+                  <div className="pt-3 border-t border-gray-800">
+                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                      🏆 Finished Songs ({completionHistory.length})
+                    </div>
+                    <div className="space-y-1.5">
+                      {completionHistory.map(t => (
+                        <div key={t.id} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2">
+                          <div>
+                            <span className="text-sm font-medium text-white">{t.name}</span>
+                            <span className="text-xs text-gray-500 ml-2">{t.key} · {t.bpm} BPM</span>
+                            {t.vibe && <span className="text-xs text-gray-600 ml-1">· {t.vibe}</span>}
+                          </div>
+                          <span className="text-xs text-green-500 shrink-0 ml-2">{t.dateFinished}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── STAGE 1 — Idea Lock-In ── */}
+            {completionStage === 1 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">Stage 1</span>
+                    <h3 className="font-bold text-white">Idea Lock-In</h3>
+                  </div>
+                  <p className="text-xs text-gray-500">Commit to one idea. Stop restarting.</p>
+                </div>
+
+                {completionLoading && (
+                  <div className="flex items-center gap-3 text-gray-400 text-sm py-6 justify-center">
+                    <span className="animate-spin text-xl">⏳</span>
+                    <span>Analysing your loop…</span>
+                  </div>
+                )}
+
+                {!completionLoading && completionTrack && (
+                  <div className="space-y-3">
+                    <div className="bg-purple-900/20 border border-purple-500/30 rounded-xl p-4">
+                      <div className="text-xs font-semibold text-purple-300 uppercase tracking-wider mb-2">This is your track</div>
+                      <p className="text-white font-medium leading-relaxed text-sm">{completionTrack.commitment}</p>
+                      <div className="flex gap-5 mt-3">
+                        <div>
+                          <div className="text-xs text-gray-500">BPM</div>
+                          <div className="text-sm font-bold text-purple-300">{completionTrack.bpm}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500">Key</div>
+                          <div className="text-sm font-bold text-purple-300">{completionTrack.key}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-500">Vibe</div>
+                          <div className="text-sm font-bold text-purple-300">{completionTrack.vibe}</div>
+                        </div>
+                      </div>
+                    </div>
+                    {completionTrack.direction && (
+                      <div className="bg-gray-800 rounded-xl p-4">
+                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Why this is worth finishing</div>
+                        <p className="text-sm text-gray-300 leading-relaxed">{completionTrack.direction}</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleLockIn}
+                      className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                    >
+                      🔒 Lock This In → Stage 2
+                    </button>
+                    <p className="text-xs text-gray-600 text-center">Once locked, the idea is final. No going back.</p>
+                  </div>
+                )}
+
+                {!completionLoading && !completionTrack && completionResult && (
+                  <div className="space-y-3">
+                    <div className="bg-gray-800 rounded-xl p-4 text-sm text-gray-400">{completionResult}</div>
+                    <p className="text-xs text-red-400">Couldn't parse response — go back and try again.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── STAGE 2 — Structure Builder ── */}
+            {completionStage === 2 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">Stage 2</span>
+                    <h3 className="font-bold text-white">Structure Builder</h3>
+                  </div>
+                  <p className="text-xs text-gray-500">Turn your loop into a full arrangement skeleton.</p>
+                </div>
+
+                {!completionResult && !completionLoading && (
+                  <button
+                    onClick={handleGenerateStructure}
+                    className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                  >
+                    📐 Generate My Structure
+                  </button>
+                )}
+
+                {completionLoading && (
+                  <div className="flex items-center gap-3 text-gray-400 text-sm py-6 justify-center">
+                    <span className="animate-spin text-xl">⏳</span>
+                    <span>Building your arrangement…</span>
+                  </div>
+                )}
+
+                {completionResult && !completionLoading && (
+                  <div className="space-y-3">
+                    {completionTrack?.structure && (
+                      <div className="bg-gray-800 rounded-xl p-4">
+                        <div className="text-xs font-semibold text-purple-300 uppercase tracking-wider mb-2">Arrangement</div>
+                        <pre className="text-sm text-gray-200 whitespace-pre-wrap font-mono leading-relaxed">{completionTrack.structure}</pre>
+                      </div>
+                    )}
+                    {completionTrack?.structureTips && (
+                      <div className="bg-gray-800 rounded-xl p-4">
+                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">FL Studio Tips</div>
+                        <p className="text-sm text-gray-300 leading-relaxed">{completionTrack.structureTips}</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleConfirmStructure}
+                      className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                    >
+                      ✓ Confirm Structure → Stage 3
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── STAGE 3 — Forced Decisions ── */}
+            {completionStage === 3 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">Stage 3</span>
+                    <h3 className="font-bold text-white">Forced Decisions</h3>
+                  </div>
+                  <p className="text-xs text-gray-500">3 decisions. One at a time. No going back once picked.</p>
+                </div>
+
+                {/* Locked decisions log */}
+                {completionDecisions.length > 0 && (
+                  <div className="bg-gray-800 rounded-xl p-3 space-y-1.5">
+                    <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Decisions locked</div>
+                    {completionDecisions.map((d, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-xs text-green-400">
+                        <span className="shrink-0 mt-0.5">✓</span><span>{d}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {completionDecisionOptions.length === 0 && !completionLoading && !completionResult && (
+                  <button
+                    onClick={handleGetDecisions}
+                    className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                  >
+                    ⚡ Get My 3 Decisions
+                  </button>
+                )}
+
+                {completionLoading && (
+                  <div className="flex items-center gap-3 text-gray-400 text-sm py-6 justify-center">
+                    <span className="animate-spin text-xl">⏳</span>
+                    <span>Generating your decisions…</span>
+                  </div>
+                )}
+
+                {completionResult && !completionLoading && completionDecisionOptions.length === 0 && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-red-400">{completionResult}</p>
+                    <button onClick={handleGetDecisions} className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm font-semibold transition-all">Try Again</button>
+                  </div>
+                )}
+
+                {/* Current decision card */}
+                {completionDecisionOptions.length > 0 && completionCurrentDecision < completionDecisionOptions.length && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Decision</span>
+                      <div className="flex gap-1">
+                        {completionDecisionOptions.map((_, i) => (
+                          <div key={i} className={`w-2 h-2 rounded-full ${
+                            i < completionCurrentDecision ? 'bg-green-500' :
+                            i === completionCurrentDecision ? 'bg-purple-400' : 'bg-gray-700'
+                          }`} />
+                        ))}
+                      </div>
+                      <span className="text-xs text-gray-600">{completionCurrentDecision + 1} of {completionDecisionOptions.length}</span>
+                    </div>
+                    <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-xl p-4">
+                      <p className="text-sm font-semibold text-yellow-100 mb-4 leading-snug">
+                        {completionDecisionOptions[completionCurrentDecision].question}
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => handleConfirmDecision(completionDecisionOptions[completionCurrentDecision].optionA)}
+                          className="p-3 bg-purple-700/40 hover:bg-purple-600/60 border border-purple-500/40 rounded-xl text-sm text-white font-medium text-left transition-all leading-snug"
+                        >
+                          {completionDecisionOptions[completionCurrentDecision].optionA}
+                        </button>
+                        <button
+                          onClick={() => handleConfirmDecision(completionDecisionOptions[completionCurrentDecision].optionB)}
+                          className="p-3 bg-blue-700/30 hover:bg-blue-600/50 border border-blue-500/30 rounded-xl text-sm text-white font-medium text-left transition-all leading-snug"
+                        >
+                          {completionDecisionOptions[completionCurrentDecision].optionB}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-2 text-center">Pick one. It's permanent.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── STAGE 4 — Feedback Pass ── */}
+            {completionStage === 4 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">Stage 4</span>
+                    <h3 className="font-bold text-white">Feedback Pass</h3>
+                  </div>
+                  <p className="text-xs text-gray-500">3 critical fixes — ranked by importance. No more, no less.</p>
+                </div>
+
+                {/* Decision log */}
+                {completionDecisions.length > 0 && (
+                  <div className="bg-gray-800 rounded-xl p-3">
+                    <div className="text-xs text-gray-500 uppercase tracking-wider mb-1.5">Your decisions</div>
+                    {completionDecisions.map((d, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-xs text-gray-400 mb-0.5">
+                        <span className="text-green-500 shrink-0">✓</span><span>{d}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!completionResult && !completionLoading && (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1.5">
+                        Notes on your current draft <span className="text-gray-600">(optional)</span>
+                      </label>
+                      <textarea
+                        value={completionInput}
+                        onChange={e => setCompletionInput(e.target.value)}
+                        placeholder="e.g. Drop sounds right, breakdown feels thin, build has no tension, outro is too long…"
+                        rows={2}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 resize-none text-sm"
+                      />
+                    </div>
+                    <button
+                      onClick={handleGetFeedback}
+                      className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                    >
+                      🎯 Run Feedback Pass
+                    </button>
+                  </>
+                )}
+
+                {completionLoading && (
+                  <div className="flex items-center gap-3 text-gray-400 text-sm py-6 justify-center">
+                    <span className="animate-spin text-xl">⏳</span>
+                    <span>Finding your 3 critical fixes…</span>
+                  </div>
+                )}
+
+                {completionResult && !completionLoading && (
+                  <div className="space-y-3">
+                    {completionTrack?.feedback && completionTrack.feedback.length > 0 ? (
+                      <>
+                        {completionTrack.feedback.map((item, i) => (
+                          <div key={i} className={`rounded-xl p-4 border ${
+                            i === 0 ? 'bg-red-900/20 border-red-700/40' :
+                            i === 1 ? 'bg-yellow-900/20 border-yellow-700/40' :
+                                      'bg-gray-800 border-gray-700'
+                          }`}>
+                            <div className={`text-xs font-semibold uppercase tracking-wider mb-1.5 ${
+                              i === 0 ? 'text-red-400' : i === 1 ? 'text-yellow-400' : 'text-gray-400'
+                            }`}>
+                              {i === 0 ? '🔴 Critical fix' : i === 1 ? '🟡 Important fix' : '⚪ Nice to have'}
+                            </div>
+                            <p className="text-sm text-white leading-relaxed">{item}</p>
+                          </div>
+                        ))}
+                        <button
+                          onClick={handleMoveToExport}
+                          className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                        >
+                          ✓ Addressed (or noted) → Stage 5: Export
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="bg-gray-800 rounded-xl p-4 text-sm text-gray-300 leading-relaxed">{completionResult}</div>
+                        <button
+                          onClick={handleMoveToExport}
+                          className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                        >
+                          → Stage 5: Export
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── STAGE 5 — Export Mode ── */}
+            {completionStage === 5 && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="bg-green-700 text-white text-xs font-bold px-2 py-0.5 rounded-full">Stage 5</span>
+                    <h3 className="font-bold text-white">Export Mode</h3>
+                  </div>
+                  <p className="text-xs text-gray-500">Stop tweaking. Tick all 5. Ship it.</p>
+                </div>
+
+                <div className="bg-yellow-900/20 border border-yellow-700/30 rounded-xl p-3">
+                  <p className="text-xs text-yellow-400 font-medium">
+                    🔒 Export Mode is locked — no new elements. This track is done. Tick every box and mark it finished.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  {EXPORT_CHECKLIST.map((item, i) => (
+                    <button
+                      key={i}
+                      onClick={() => handleChecklistToggle(i)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                        completionChecklist[i]
+                          ? 'border-green-600/50 bg-green-900/20'
+                          : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                        completionChecklist[i] ? 'border-green-500 bg-green-500' : 'border-gray-600'
+                      }`}>
+                        {completionChecklist[i] && <span className="text-white text-xs font-bold">✓</span>}
+                      </div>
+                      <span className={`text-sm ${completionChecklist[i] ? 'text-green-300' : 'text-gray-300'}`}>{item}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="text-xs text-gray-600 text-center">
+                  {completionChecklist.filter(Boolean).length} / {EXPORT_CHECKLIST.length} checked
+                </div>
+
+                <button
+                  onClick={handleMarkFinished}
+                  disabled={!completionChecklist.every(Boolean)}
+                  className="w-full py-4 bg-green-700 hover:bg-green-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl font-bold text-lg text-white transition-all"
+                >
+                  🏆 Mark as FINISHED
+                </button>
+              </div>
+            )}
+
+            {/* ── STAGE 6 — Celebration ── */}
+            {completionStage === 6 && (
+              <div className="bg-gray-900 border border-green-700/40 rounded-xl p-6 text-center space-y-4">
+                <div className="text-6xl">🎉</div>
+                <div>
+                  <h2 className="text-2xl font-bold text-green-400">Track Finished.</h2>
+                  <p className="text-gray-400 mt-1 font-medium">{completionTrack?.name}</p>
+                  {completionTrack && (
+                    <p className="text-sm text-gray-500 mt-1">
+                      {completionTrack.key} · {completionTrack.bpm} BPM{completionTrack.vibe ? ` · ${completionTrack.vibe}` : ''}
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-gray-800 rounded-xl p-4 text-left">
+                  <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                    🏆 Finished Songs ({completionHistory.length})
+                  </div>
+                  <div className="space-y-2">
+                    {completionHistory.slice(0, 6).map(t => (
+                      <div key={t.id} className="flex items-center justify-between">
+                        <div>
+                          <span className="text-sm font-medium text-white">{t.name}</span>
+                          <span className="text-xs text-gray-500 ml-2">{t.key} · {t.bpm} BPM</span>
+                        </div>
+                        <span className="text-xs text-green-500 shrink-0 ml-2">{t.dateFinished}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleCompletionNewTrack}
+                  className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                >
+                  + Start Another Track
+                </button>
+              </div>
+            )}
+
+          </div>
+        )}
+
         {/* ── Input panel ── */}
-        {mode && (
+        {mode && mode !== 'completion' && (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4 space-y-4">
 
             {/* Start From Nothing — chord type + options */}
@@ -1513,8 +2587,86 @@ export default function App() {
               </div>
             )}
 
-            {/* Analyse Sample — file upload + real analysis */}
-            {mode === 'sample' ? (
+            {/* Stereo Field Analyzer — file upload + band analysis */}
+            {mode === 'stereo' ? (
+              <div className="space-y-3">
+                <input ref={stereoFileRef} type="file" accept="audio/*" className="hidden"
+                  onChange={e => handleStereoFileSelect(e.target.files[0])} />
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Genre / Context <span className="text-gray-600">(optional — helps the AI map instruments)</span></label>
+                  <input
+                    value={stereoGenre}
+                    onChange={e => setStereoGenre(e.target.value)}
+                    placeholder="e.g. UK garage, dark techno, speed garage, house…"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1.5">Upload your mix / track</label>
+                  <button
+                    onClick={() => stereoFileRef.current?.click()}
+                    className={`w-full p-4 rounded-xl border-2 border-dashed transition-colors text-center ${
+                      stereoFile ? 'border-purple-500 bg-purple-500/10' : 'border-gray-700 bg-gray-800/50 hover:border-gray-500'
+                    }`}
+                  >
+                    {stereoFile ? (
+                      <div>
+                        <div className="text-purple-300 font-medium">{stereoFile.name}</div>
+                        <div className="text-gray-500 text-xs mt-1">Click to change file</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="text-2xl mb-2">🔊</div>
+                        <div className="text-gray-400 text-sm">Click to upload your track</div>
+                        <div className="text-gray-600 text-xs mt-1">MP3, WAV, AIFF, etc.</div>
+                      </div>
+                    )}
+                  </button>
+                </div>
+                {analysingStereo && (
+                  <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-400 flex items-center gap-2">
+                    <span className="animate-spin">⏳</span> Analysing stereo field…
+                  </div>
+                )}
+                {stereoError && (
+                  <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 text-sm text-red-300">{stereoError}</div>
+                )}
+                {stereoAnalysis && !analysingStereo && (
+                  <div className="bg-gray-800 rounded-xl p-4 text-sm space-y-3">
+                    <div className="text-xs font-semibold text-purple-300 uppercase tracking-wider">Stereo Field Measurements</div>
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-xs">
+                      <div><span className="text-gray-500">Duration</span><br/><span className="text-gray-200 font-medium">{stereoAnalysis.duration}s</span></div>
+                      <div><span className="text-gray-500">Width</span><br/><span className="text-gray-200 font-medium">{stereoAnalysis.overallWidth}%</span></div>
+                      <div><span className="text-gray-500">Format</span><br/><span className="text-gray-200 font-medium">{stereoAnalysis.isMono ? 'Mono' : 'Stereo'}</span></div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 mb-2">Per-band stereo position (L ← center → R)</div>
+                      <div className="space-y-1.5">
+                        {stereoAnalysis.bandData.map(b => (
+                          <div key={b.name} className="flex items-center gap-2 text-xs">
+                            <span className="text-gray-500 w-20 shrink-0">{b.name}</span>
+                            <div className="flex-1 relative bg-gray-700 rounded-full h-2">
+                              <div className="absolute left-1/2 top-0 w-px h-full bg-gray-500 opacity-60"/>
+                              <div
+                                className={`absolute top-0 h-full rounded-full transition-all ${b.pan < -5 ? 'bg-blue-400' : b.pan > 5 ? 'bg-orange-400' : 'bg-purple-400'}`}
+                                style={{ width: Math.max(2, Math.abs(b.pan) / 2) + '%', left: b.pan < 0 ? (50 + b.pan / 2) + '%' : '50%' }}
+                              />
+                            </div>
+                            <span className="text-gray-400 w-10 text-right font-mono text-xs">
+                              {b.pan > 0 ? '+' : ''}{b.pan}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-gray-500">
+                  🌐 Analyses L/R frequency content across 7 bands, then maps each band to an instrument and plots it on a 3D stereo field — side by side with the ideal layout for your genre.
+                </p>
+              </div>
+            ) : /* Analyse Sample — file upload + real analysis */
+            mode === 'sample' ? (
               <div className="space-y-4">
                 {/* Instrument type */}
                 <div>
@@ -1664,7 +2816,7 @@ export default function App() {
         )}
 
         {/* ── Result — sits right below the Generate button ── */}
-        {(result || loading) && (
+        {mode !== 'completion' && (result || loading) && (
           <div ref={resultRef} className="space-y-3 mt-2">
             {/* Loading placeholder */}
             {loading && !result && (
@@ -1832,6 +2984,64 @@ export default function App() {
             >
               Download MIDI
             </a>
+          </div>
+        )}
+
+        {/* ── Stereo Field visualization ── */}
+        {stereoFieldData && (
+          <div className="mb-4 space-y-3">
+            <div className="text-xs text-gray-500 uppercase tracking-wider px-1">Stereo Field Map</div>
+            <div className="flex gap-3">
+              <StereoFieldPanel
+                instruments={stereoFieldData.ideal}
+                title="✦ Ideal Layout"
+                accent="blue"
+              />
+              <StereoFieldPanel
+                instruments={stereoFieldData.actual}
+                title="◉ Your Mix"
+                accent="purple"
+              />
+            </div>
+            {stereoFieldData.feedback && (
+              <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-xl p-4">
+                <div className="text-xs font-semibold text-yellow-400 mb-1 uppercase tracking-wider">Key Fix</div>
+                <p className="text-sm text-yellow-200">{stereoFieldData.feedback}</p>
+              </div>
+            )}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div className="text-xs font-semibold text-gray-400 mb-3 uppercase tracking-wider">Instrument Positions</div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0">
+                {/* Headers */}
+                <div className="text-xs text-blue-400 font-semibold pb-1 border-b border-gray-800">Ideal</div>
+                <div className="text-xs text-purple-400 font-semibold pb-1 border-b border-gray-800">Your Mix</div>
+                {/* Row data */}
+                {stereoFieldData.ideal.map((inst, i) => {
+                  const actual = stereoFieldData.actual[i]
+                  const diff   = actual ? Math.abs(actual.pan - inst.pan) : 0
+                  return (
+                    <>
+                      <div key={`ideal-${i}`} className="flex items-center justify-between py-1.5 border-b border-gray-800/50 text-xs">
+                        <span className="text-gray-300 font-medium">{inst.name}</span>
+                        <span className="text-blue-300 font-mono">{inst.pan > 0 ? '+' : ''}{inst.pan} / d{inst.depth}</span>
+                      </div>
+                      <div key={`actual-${i}`} className="flex items-center justify-between py-1.5 border-b border-gray-800/50 text-xs">
+                        <span className="text-gray-300 font-medium">{actual?.name || '—'}</span>
+                        <span className={`font-mono ${diff > 30 ? 'text-red-400' : diff > 10 ? 'text-yellow-400' : 'text-green-400'}`}>
+                          {actual ? `${actual.pan > 0 ? '+' : ''}${actual.pan} / d${actual.depth}` : '—'}
+                        </span>
+                      </div>
+                    </>
+                  )
+                })}
+              </div>
+              <div className="mt-3 flex items-center gap-3 text-xs text-gray-600">
+                <span className="text-green-500">●</span> On target
+                <span className="text-yellow-500">●</span> Minor offset
+                <span className="text-red-500">●</span> Needs attention
+                <span className="ml-auto">pan = L/R · d = depth</span>
+              </div>
+            </div>
           </div>
         )}
 
