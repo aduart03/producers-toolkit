@@ -152,7 +152,7 @@ const MIDI_TYPES  = [
 const MODES = [
   { id: 'sounds',  label: '🎧 Sound Discovery', desc: 'Find sounds beyond Splice'             },
   { id: 'vocals',  label: '🎤 Vocal Chain',      desc: 'Pro chain from a working producer'    },
-  { id: 'sample',  label: '🎙️ Analyze Sample',  desc: 'Upload audio for quick analysis'      },
+  { id: 'sample',  label: '🎙️ Analyze Sound',  desc: 'Upload audio for quick analysis'      },
   { id: 'release', label: '🚀 Release Plan',     desc: 'Week-by-week rollout strategy'        },
 ]
 
@@ -3754,7 +3754,7 @@ export default function App() {
                 <div>
                   <label className="block text-xs text-gray-400 mb-1.5">Instrument / Sound Type</label>
                   <div className="flex flex-wrap gap-2">
-                    {['Kick','Snare/Clap','Hi-hat','Bass','Synth/Lead','Pad','Vocal Chop','Full Loop','FX/Riser'].map(t => (
+                    {['Kick','Snare/Clap','Hi-hat','Bass','Synth/Lead','Pad','Vocal Chop','Full Loop','FX/Riser', 'Full Song'].map(t => (
                       <button key={t} onClick={() => setSampleInstrument(t)}
                         className={`px-3 py-1 rounded-lg text-sm border transition-all ${
                           sampleInstrument === t ? 'border-purple-500 bg-purple-500/20 text-purple-200'
@@ -3777,19 +3777,39 @@ export default function App() {
                   />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-gray-700 hover:border-purple-500 rounded-xl p-6 text-center transition-colors"
+                    onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={async e => {
+                      e.preventDefault()
+                      setIsDragging(false)
+                      const f = e.dataTransfer.files[0]
+                      if (!f) return
+                      setCompletionFile(f)
+                      try { const a = await analyzeAudioFile(f); setCompletionAnalysis(a) } catch {}
+                    }}
+                    className={`w-full border-2 border-dashed border-gray-700 hover:border-purple-500 rounded-xl p-6 text-center transition-colors ${
+                       isDragging ? 'border-green-400 bg-green-950/30' :
+                      completionFile ? 'border-green-600/60 bg-green-950/20' :
+                      'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+                    }`}
                   >
                     {sampleFile ? (
                       <div>
                         <div className="text-purple-300 font-medium">{sampleFile.name}</div>
                         <div className="text-gray-500 text-xs mt-1">Click to change file</div>
                       </div>
-                    ) : (
-                      <div>
-                        <div className="text-2xl mb-2">🎵</div>
-                        <div className="text-gray-400 text-sm">Click to upload your sample</div>
-                        <div className="text-gray-600 text-xs mt-1">MP3, WAV, AIFF, etc.</div>
-                      </div>
+                    ) : savedFileName && !isDragging ?
+                      <span className="text-yellow-500/80 text-sm">↑ Re-upload <span className="font-medium">{savedFileName}</span> to restore audio</span>
+                        : (
+                          <div className="text-gray-500 text-sm">{isDragging ? 'Drop it 🎵' : 
+                                <>
+                                  <div className="text-2xl mb-2">🎵</div>
+                                  <div className="text-gray-400 text-sm">Click to upload your sample</div>
+                                  <div className="text-gray-600 text-xs mt-1">MP3, WAV, AIFF, etc.</div>
+                                    </>}
+
+                            
+                          </div>
                     )}
                   </button>
                 </div>
@@ -3919,7 +3939,7 @@ export default function App() {
                 <ReactMarkdown>{result}</ReactMarkdown>
               </div>
             )}
-            {/* What's next? — shown after Analyze Sample result */}
+            {/* What's next? — shown after Analyze Sound result */}
             {result && !loading && mode === 'sample' && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                 <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">What do you want to do with this sound?</p>
