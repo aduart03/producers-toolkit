@@ -150,18 +150,10 @@ const MIDI_TYPES  = [
 ]
 
 const MODES = [
-  { id: 'start',    label: '🎹 Start From Nothing', desc: 'Blank canvas direction'    },
-  { id: 'stuck',    label: '🔁 I Have Something',   desc: 'Get unstuck on your loop' },
-  { id: 'lyrics',   label: '✍️ Lyric Concepts',     desc: 'Raw themes, not cheesy AI' },
-  { id: 'sounds',   label: '🎧 Sound Discovery',    desc: 'Beyond Splice'             },
-  { id: 'mix',      label: '🎚️ Mix Advice',         desc: 'Surgical EQ & plugin tips' },
-  { id: 'design',   label: '🔊 Sound Design',       desc: 'Recreate any sound'        },
-  { id: 'generate', label: '🎵 Generate Track',     desc: 'Suno/Udio prompt + brief'  },
-  { id: 'sample',   label: '🎙️ Analyze Sample',     desc: 'Upload audio for real analysis' },
-  { id: 'daw',       label: '🖥️ DAW & Learning',     desc: 'Setup, gear & switching DAWs' },
-  { id: 'vocals',    label: '🎤 Vocal Chain',         desc: 'Pro chain from a working producer' },
-  { id: 'master',   label: '🎛️ Master Chain',        desc: 'Full mastering chain breakdown' },
-  { id: 'stereo',   label: '🌐 Stereo Analyzer',     desc: 'Map your mix\'s 3D stereo field'  },
+  { id: 'sounds',  label: '🎧 Sound Discovery', desc: 'Find sounds beyond Splice'             },
+  { id: 'vocals',  label: '🎤 Vocal Chain',      desc: 'Pro chain from a working producer'    },
+  { id: 'sample',  label: '🎙️ Analyze Sample',  desc: 'Upload audio for quick analysis'      },
+  { id: 'release', label: '🚀 Release Plan',     desc: 'Week-by-week rollout strategy'        },
 ]
 
 // ─── MIDI generation ──────────────────────────────────────────────────────────
@@ -452,6 +444,321 @@ const parseStereoField = (text) => {
     }
   }
   return (actual.length > 0 || ideal.length > 0) ? { actual, ideal, feedback } : null
+}
+
+// ─── Goniometer / Lissajous real-time visualizer ─────────────────────────────
+const GoniometerWidget = ({ file, bandData }) => {
+  const canvasRef     = useRef(null)
+  const audioCtxRef   = useRef(null)
+  const analyserLRef  = useRef(null)
+  const analyserRRef  = useRef(null)
+  const sourceRef     = useRef(null)
+  const bufferRef     = useRef(null)
+  const rafRef        = useRef(null)
+  const startTimeRef  = useRef(0)
+  const offsetRef     = useRef(0)
+  const [playing,     setPlaying]     = useState(false)
+  const [loading,     setLoading]     = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration,    setDuration]    = useState(0)
+
+  // Decode audio whenever file changes
+  useEffect(() => {
+    if (!file) return
+    setLoading(true)
+    setPlaying(false)
+    offsetRef.current = 0
+    setCurrentTime(0)
+    setDuration(0)
+    try { sourceRef.current?.stop() } catch {}
+    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
+
+    const ac = new (window.AudioContext || window.webkitAudioContext)()
+    audioCtxRef.current = ac
+
+    file.arrayBuffer()
+      .then(buf => ac.decodeAudioData(buf))
+      .then(decoded => {
+        bufferRef.current = decoded
+        setDuration(decoded.duration)
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+
+    return () => {
+      try { sourceRef.current?.stop() } catch {}
+      ac.close()
+    }
+  }, [file])
+
+  // Draw static view from band data whenever bandData changes or canvas mounts
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || playing) return
+    const ctx = canvas.getContext('2d')
+    const SIZE = canvas.width
+    const cx = SIZE / 2, cy = SIZE / 2
+    const scale = SIZE * 0.43
+    const SQRT2 = Math.SQRT2
+
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, SIZE, SIZE)
+
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+    ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(cx, 4); ctx.lineTo(cx, SIZE - 4); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(4, cy); ctx.lineTo(SIZE - 4, cy); ctx.stroke()
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)'
+    ctx.beginPath(); ctx.moveTo(0, SIZE); ctx.lineTo(SIZE, 0); ctx.stroke()
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(SIZE, SIZE); ctx.stroke()
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+    ctx.beginPath(); ctx.arc(cx, cy, scale, 0, Math.PI * 2); ctx.stroke()
+
+    // L / R labels
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'
+    ctx.font = '9px monospace'
+    ctx.fillText('L', 6, cy - 4)
+    ctx.fillText('R', SIZE - 13, cy - 4)
+    ctx.fillText('+', cx - 4, 12)
+    ctx.fillText('−', cx - 4, SIZE - 4)
+
+    if (bandData && bandData.length > 0) {
+      // Plot each band as a labelled dot at its M/S position
+      bandData.forEach(band => {
+        const panNorm = (band.pan || 0) / 100       // -1 to +1
+        const s = -panNorm / SQRT2
+        const m = (1 - Math.abs(panNorm) * 0.3) / SQRT2
+        const px = cx + s * scale * 0.85
+        const py = cy - m * scale * 0.55
+
+        const hue = 130 + Math.abs(panNorm) * 80
+        ctx.fillStyle = `hsla(${hue},100%,65%,0.85)`
+        ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill()
+
+        ctx.fillStyle = 'rgba(255,255,255,0.55)'
+        ctx.font = '8px monospace'
+        ctx.fillText(band.name.split('/')[0], px + 7, py + 3)
+      })
+    } else {
+      // No band data yet — show placeholder text
+      ctx.fillStyle = 'rgba(255,255,255,0.15)'
+      ctx.font = '11px monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText('Upload a track to', cx, cy - 8)
+      ctx.fillText('see the field', cx, cy + 8)
+      ctx.textAlign = 'left'
+    }
+  }, [bandData, playing])
+
+  const startPlayback = (offset = 0) => {
+    const ac  = audioCtxRef.current
+    const buf = bufferRef.current
+    if (!ac || !buf) return
+    try { sourceRef.current?.stop() } catch {}
+
+    const splitter = ac.createChannelSplitter(2)
+    const aL       = ac.createAnalyser()
+    const aR       = ac.createAnalyser()
+    aL.fftSize = 2048
+    aR.fftSize = 2048
+    analyserLRef.current = aL
+    analyserRRef.current = aR
+
+    const source = ac.createBufferSource()
+    source.buffer = buf
+    // If mono, feed the same channel to both analysers
+    if (buf.numberOfChannels === 1) {
+      source.connect(aL)
+      source.connect(aR)
+    } else {
+      source.connect(splitter)
+      splitter.connect(aL, 0)
+      splitter.connect(aR, 1)
+    }
+    const gain = ac.createGain()
+    aL.connect(gain)
+    aR.connect(gain)
+    gain.connect(ac.destination)
+
+    sourceRef.current = source
+    startTimeRef.current = ac.currentTime - offset
+    source.start(0, offset)
+    source.onended = () => { setPlaying(false); offsetRef.current = 0 }
+  }
+
+  const togglePlay = () => {
+    const ac = audioCtxRef.current
+    if (!ac || !bufferRef.current) return
+    if (playing) {
+      const elapsed = ac.currentTime - startTimeRef.current
+      offsetRef.current = Math.min(elapsed, duration)
+      try { sourceRef.current?.stop() } catch {}
+      setPlaying(false)
+    } else {
+      if (ac.state === 'suspended') ac.resume()
+      startPlayback(offsetRef.current)
+      setPlaying(true)
+    }
+  }
+
+  // Animation loop — only runs while playing
+  useEffect(() => {
+    if (!playing) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx   = canvas.getContext('2d')
+    const SIZE  = canvas.width
+    const cx    = SIZE / 2
+    const cy    = SIZE / 2
+    const scale = SIZE * 0.43
+    const SQRT2 = Math.SQRT2
+    const bufLen = analyserLRef.current?.frequencyBinCount || 1024
+    const dataL  = new Float32Array(bufLen)
+    const dataR  = new Float32Array(bufLen)
+
+    const draw = () => {
+      rafRef.current = requestAnimationFrame(draw)
+      const al = analyserLRef.current
+      const ar = analyserRRef.current
+      const ac = audioCtxRef.current
+      if (!al || !ar || !ac) return
+
+      setCurrentTime(Math.min(ac.currentTime - startTimeRef.current, duration))
+      al.getFloatTimeDomainData(dataL)
+      ar.getFloatTimeDomainData(dataR)
+
+      // Fade trail
+      ctx.fillStyle = 'rgba(0,0,0,0.18)'
+      ctx.fillRect(0, 0, SIZE, SIZE)
+
+      // Grid — crosshair + diagonals + boundary circle
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(cx, 4); ctx.lineTo(cx, SIZE - 4); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(4, cy); ctx.lineTo(SIZE - 4, cy); ctx.stroke()
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)'
+      ctx.beginPath(); ctx.moveTo(0, SIZE); ctx.lineTo(SIZE, 0); ctx.stroke()
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(SIZE, SIZE); ctx.stroke()
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)'
+      ctx.beginPath(); ctx.arc(cx, cy, scale, 0, Math.PI * 2); ctx.stroke()
+
+      // L / R labels
+      ctx.fillStyle = 'rgba(255,255,255,0.18)'
+      ctx.font = '9px monospace'
+      ctx.fillText('L', 6, cy - 4)
+      ctx.fillText('R', SIZE - 13, cy - 4)
+      ctx.fillText('+', cx - 4, 12)
+      ctx.fillText('−', cx - 4, SIZE - 4)
+
+      // Plot — M/S goniometer rotation
+      const step = Math.max(1, Math.floor(bufLen / 600))
+      for (let i = 0; i < bufLen; i += step) {
+        const l = dataL[i]
+        const r = dataR[i]
+        const m =  (l + r) / SQRT2   // mono sum  → vertical axis
+        const s =  (l - r) / SQRT2   // side diff → horizontal axis
+        const px = cx + s * scale
+        const py = cy - m * scale    // flip Y so positive goes up
+
+        // Colour: green when correlated (mono-ish), cyan when wide
+        const absM = Math.abs(m)
+        const absS = Math.abs(s)
+        const width = absS / (absM + absS + 0.001)
+        const hue   = 130 + Math.round(width * 80)     // 130 green → 210 cyan-blue
+        const light = Math.min(90, 45 + (absM + absS) * 60)
+        ctx.fillStyle = `hsla(${hue},100%,${light}%,0.75)`
+        ctx.fillRect(px - 1, py - 1, 2, 2)
+      }
+    }
+
+    // Clear on first frame
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, SIZE, SIZE)
+    rafRef.current = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(rafRef.current)
+  }, [playing, duration])
+
+  const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-semibold text-purple-300 uppercase tracking-wider">Live Goniometer</span>
+        <span className="text-xs text-gray-600">M/S stereo field</span>
+      </div>
+      <div className="relative">
+        <canvas
+          ref={canvasRef}
+          width={320}
+          height={320}
+          className="w-full rounded-lg"
+          style={{ background: '#000', display: 'block' }}
+        />
+        {/* Play-to-animate prompt — shown when not playing and file is ready */}
+        {!playing && !loading && bufferRef.current && (
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-end pb-4 pointer-events-none rounded-lg"
+            style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)' }}
+          >
+            <span className="text-xs text-gray-400">Press ▶ below for live visualization</span>
+          </div>
+        )}
+      </div>
+      {/* Playback controls */}
+      <div className="flex items-center gap-3 mt-3">
+        <button
+          onClick={togglePlay}
+          disabled={loading || !bufferRef.current}
+          className="flex items-center justify-center w-9 h-9 rounded-full bg-purple-600 hover:bg-purple-500 disabled:opacity-40 transition-all shrink-0"
+        >
+          {playing ? (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="white">
+              <rect x="1.5" y="1.5" width="3.5" height="9" rx="1"/>
+              <rect x="7" y="1.5" width="3.5" height="9" rx="1"/>
+            </svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="white">
+              <path d="M2.5 1.5l8 4.5-8 4.5V1.5z"/>
+            </svg>
+          )}
+        </button>
+        {/* Scrubber */}
+        <div className="flex-1">
+          <div className="relative h-1.5 bg-gray-700 rounded-full cursor-pointer group"
+            onClick={e => {
+              if (!duration) return
+              const rect = e.currentTarget.getBoundingClientRect()
+              const pct  = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+              const newOffset = pct * duration
+              offsetRef.current = newOffset
+              if (playing) {
+                try { sourceRef.current?.stop() } catch {}
+                const ac = audioCtxRef.current
+                if (ac) { startPlayback(newOffset); startTimeRef.current = ac.currentTime - newOffset }
+              }
+              setCurrentTime(newOffset)
+            }}
+          >
+            <div
+              className="absolute top-0 left-0 h-full bg-purple-500 rounded-full transition-all"
+              style={{ width: duration ? `${(currentTime / duration) * 100}%` : '0%' }}
+            />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-xs text-gray-600 font-mono">{fmt(currentTime)}</span>
+            <span className="text-xs text-gray-600 font-mono">{fmt(duration)}</span>
+          </div>
+        </div>
+      </div>
+      {loading && (
+        <div className="text-xs text-gray-500 mt-2 text-center animate-pulse">Decoding audio…</div>
+      )}
+      <div className="mt-2 text-xs text-gray-600 leading-relaxed">
+        Green = correlated (mono-safe) · Cyan = wide stereo · Vertical = mono sum · Horizontal = stereo spread
+      </div>
+    </div>
+  )
 }
 
 // ─── Stereo field panel component ────────────────────────────────────────────
@@ -1303,19 +1610,23 @@ export default function App() {
   // completionDecisions: permanent log of stage 3 picks
   // completionDecisionOptions: [{question, optionA, optionB}] shown one at a time
   // completionHistory: localStorage — all finished tracks across sessions
-  const [completionStage,           setCompletionStage]           = useState(0)
-  const [completionTrack,           setCompletionTrack]           = useState(null)
-  const [completionInput,           setCompletionInput]           = useState('')
-  const [completionResult,          setCompletionResult]          = useState('')
+  // Load persisted session once on mount
+  const _saved = (() => { try { return JSON.parse(localStorage.getItem('completionSession') || 'null') } catch { return null } })()
+
+  const [completionStage,           setCompletionStage]           = useState(_saved?.stage           ?? 0)
+  const [completionTrack,           setCompletionTrack]           = useState(_saved?.track           ?? null)
+  const [completionInput,           setCompletionInput]           = useState(_saved?.input           ?? '')
+  const [completionResult,          setCompletionResult]          = useState(_saved?.result          ?? '')
   const [completionLoading,         setCompletionLoading]         = useState(false)
-  const [completionDecisions,       setCompletionDecisions]       = useState([])
-  const [completionCurrentDecision, setCompletionCurrentDecision] = useState(0)
-  const [completionDecisionOptions, setCompletionDecisionOptions] = useState([])
-  const [completionDecisionPicks,   setCompletionDecisionPicks]   = useState({})
-  const [completionFile,            setCompletionFile]            = useState(null)
-  const [completionAnalysis,        setCompletionAnalysis]        = useState(null)
-  const [completionChecklist,       setCompletionChecklist]       = useState([false,false,false,false,false])
+  const [completionDecisions,       setCompletionDecisions]       = useState(_saved?.decisions       ?? [])
+  const [completionCurrentDecision, setCompletionCurrentDecision] = useState(_saved?.currentDecision ?? 0)
+  const [completionDecisionOptions, setCompletionDecisionOptions] = useState(_saved?.decisionOptions ?? [])
+  const [completionDecisionPicks,   setCompletionDecisionPicks]   = useState(_saved?.decisionPicks   ?? {})
+  const [completionFile,            setCompletionFile]            = useState(null) // File can't serialize — user re-uploads if needed
+  const [completionAnalysis,        setCompletionAnalysis]        = useState(_saved?.analysis        ?? null)
+  const [completionChecklist,       setCompletionChecklist]       = useState(_saved?.checklist       ?? [false,false,false,false,false])
   const [completionShowCelebration, setCompletionShowCelebration] = useState(false)
+  const [savedFileName,             setSavedFileName]             = useState(_saved?.fileName        ?? null)
   const [showDescription,           setShowDescription]           = useState(false)
   const [isDragging,                setIsDragging]                = useState(false)
   const [completionError,           setCompletionError]           = useState('')
@@ -1323,6 +1634,9 @@ export default function App() {
   const [historySearch,             setHistorySearch]             = useState('')
   const [completionHistory,         setCompletionHistory]         = useState(() => {
     try { return JSON.parse(localStorage.getItem('completionHistory') || '[]') } catch { return [] }
+  })
+  const [inProgressSongs,           setInProgressSongs]           = useState(() => {
+    try { return JSON.parse(localStorage.getItem('inProgressSongs') || '[]') } catch { return [] }
   })
 
   const [trackStage, setTrackStage] = useState( 
@@ -1343,6 +1657,8 @@ export default function App() {
   const [audioCurrentTime, setAudioCurrentTime] = useState(0)
   const [audioDuration,    setAudioDuration]    = useState(0)
   const [audioUrl,         setAudioUrl]         = useState(null)
+  // playerTrack: what the bottom bar displays — set on file upload OR on clicking any song row
+  const [playerTrack,      setPlayerTrack]      = useState(null)
 
   const [chordHistory, setChordHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('chordHistory') || '[]') } catch { return [] }
@@ -1355,6 +1671,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('completionHistory', JSON.stringify(completionHistory))
   }, [completionHistory])
+
+  useEffect(() => {
+    localStorage.setItem('inProgressSongs', JSON.stringify(inProgressSongs))
+  }, [inProgressSongs])
 
   // ── Scroll result into view when generation starts ──
   useEffect(() => {
@@ -1385,14 +1705,51 @@ export default function App() {
     localStorage.setItem('trackStage', JSON.stringify(trackStage))
   }, [trackStage])
 
+  // ── Persist active completion session ──
+  useEffect(() => {
+    if (completionStage === 0 && !completionTrack) {
+      localStorage.removeItem('completionSession')
+      return
+    }
+    localStorage.setItem('completionSession', JSON.stringify({
+      stage:           completionStage,
+      track:           completionTrack,
+      input:           completionInput,
+      result:          completionResult,
+      decisions:       completionDecisions,
+      currentDecision: completionCurrentDecision,
+      decisionOptions: completionDecisionOptions,
+      decisionPicks:   completionDecisionPicks,
+      analysis:        completionAnalysis,
+      checklist:       completionChecklist,
+      fileName:        completionFile?.name ?? savedFileName ?? null,
+    }))
+  }, [completionStage, completionTrack, completionInput, completionResult,
+      completionDecisions, completionCurrentDecision, completionDecisionOptions,
+      completionDecisionPicks, completionAnalysis, completionChecklist, completionFile])
+
   // ── Audio player: create blob URL when file is set. Don't destroy on session reset — player stays alive until user dismisses it.
   useEffect(() => {
     if (!completionFile) return
     const url = URL.createObjectURL(completionFile)
     setAudioUrl(url)
     setAudioCurrentTime(0)
+    // Populate player bar with file name (bpm/key will fill in once completionTrack is set)
+    setPlayerTrack(pt => ({ ...pt, name: completionFile.name.replace(/\.[^/.]+$/, '') }))
     return () => URL.revokeObjectURL(url)
   }, [completionFile])
+
+  // ── Sync player bar info when completionTrack updates ──
+  useEffect(() => {
+    if (!completionTrack) return
+    setPlayerTrack(pt => pt ? {
+      ...pt,
+      name: pt.name || completionTrack.name,
+      bpm:  completionTrack.bpm,
+      key:  completionTrack.key,
+      vibe: completionTrack.vibe,
+    } : null)
+  }, [completionTrack])
 
   // ── Enter key to submit on Completion Engine entry screen ──
   useEffect(() => {
@@ -1601,12 +1958,37 @@ export default function App() {
   const resetCompletionSession = () => {
     setCompletionStage(0); setCompletionTrack(null); setCompletionInput(''); setCompletionResult('')
     setCompletionDecisions([]); setCompletionCurrentDecision(0); setCompletionDecisionOptions([])
-    setCompletionFile(null); setCompletionAnalysis(null)
+    setCompletionDecisionPicks({})
+    setCompletionFile(null); setCompletionAnalysis(null); setSavedFileName(null)
     setCompletionChecklist([false,false,false,false,false]); setCompletionShowCelebration(false)
     setCompletionTrackName('')
+    localStorage.removeItem('completionSession')
   }
 
   const resetMode = (id) => {
+    // Auto-save in-progress session when leaving completion engine mid-workflow
+    if (id !== 'completion' && completionStage > 0 && completionTrack) {
+      const snapshot = {
+        id:              completionTrack.name + '_' + Date.now(),
+        name:            completionTrack.name,
+        stage:           completionStage,
+        savedAt:         new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        track:           completionTrack,
+        input:           completionInput,
+        result:          completionResult,
+        decisions:       completionDecisions,
+        decisionOptions: completionDecisionOptions,
+        decisionPicks:   completionDecisionPicks,
+        analysis:        completionAnalysis,
+        checklist:       completionChecklist,
+        fileName:        completionFile?.name ?? savedFileName ?? null,
+      }
+      setInProgressSongs(prev => {
+        // Replace existing entry for same track name, or prepend new one
+        const filtered = prev.filter(s => s.name !== snapshot.name)
+        return [snapshot, ...filtered]
+      })
+    }
     setMode(id); setInput(''); setResult(''); setMidiData(null)
     setSampleFile(null); setSampleAnalysis(null); setAudioError('')
     setConversationHistory([]); setFollowUpInput(''); setDjRoadmapData(null)
@@ -1788,6 +2170,14 @@ export default function App() {
       dateFinished: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
     }
     setCompletionHistory(prev => [finished, ...prev])
+    // Remove from in-progress if it was saved there
+    setInProgressSongs(prev => prev.filter(s => s.name !== completionTrack.name))
+    // Auto-advance trackStage to next production stage
+    const stageOrder = ['sound_design', 'composition', 'mixing', 'mastering']
+    const currentIdx = stageOrder.indexOf(trackStage)
+    if (currentIdx !== -1 && currentIdx < stageOrder.length - 1) {
+      setTrackStage(stageOrder[currentIdx + 1])
+    }
     setCompletionStage(6)
     setCompletionShowCelebration(true)
   }
@@ -1799,6 +2189,30 @@ export default function App() {
 
   const handleDeleteTrack = (id) => {
     setCompletionHistory(prev => prev.filter(t => t.id !== id))
+  }
+
+  const handleLoadInProgress = (song) => {
+    // Restore all session state from the saved snapshot
+    setCompletionStage(song.stage)
+    setCompletionTrack(song.track)
+    setCompletionInput(song.input || '')
+    setCompletionResult(song.result || '')
+    setCompletionDecisions(song.decisions || [])
+    setCompletionCurrentDecision(0)
+    setCompletionDecisionOptions(song.decisionOptions || [])
+    setCompletionDecisionPicks(song.decisionPicks || {})
+    setCompletionAnalysis(song.analysis || null)
+    setCompletionChecklist(song.checklist || [false,false,false,false,false])
+    setSavedFileName(song.fileName || null)
+    setCompletionShowCelebration(false)
+    // Remove from in-progress list (it's now the active session)
+    setInProgressSongs(prev => prev.filter(s => s.id !== song.id))
+    // Navigate to completion engine
+    setMode('completion')
+  }
+
+  const handleDeleteInProgress = (id) => {
+    setInProgressSongs(prev => prev.filter(s => s.id !== id))
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1916,6 +2330,88 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Persistent Track Progress Widget ── */}
+        {trackStage !== null && (() => {
+          const stageOrder   = ['sound_design', 'composition', 'mixing', 'mastering']
+          const stageLabels  = { sound_design: 'Sound Design', composition: 'Composition', mixing: 'Mixing', mastering: 'Mastering' }
+          const stageColors  = { sound_design: '#6366f1', composition: '#3b82f6', mixing: '#8b5cf6', mastering: '#22c55e' }
+          const pct          = STAGE_PROGRESS[trackStage] ?? 0
+          const color        = stageColors[trackStage]
+          const r            = 34
+          const circ         = 2 * Math.PI * r
+          const dash         = circ * (1 - pct / 100)
+          // Completion Engine sub-progress
+          const inEngine     = mode === 'completion' && completionStage >= 1
+          const engineLabels = ['', 'Lock-In', 'Structure', 'Decisions', 'Feedback', 'Export']
+          return (
+            <div className="mb-4 rounded-2xl border border-white/8 p-4 flex items-center gap-4"
+              style={{ background: 'rgba(255,255,255,0.03)' }}>
+              {/* Circle */}
+              <div className="relative shrink-0">
+                <svg width="84" height="84" viewBox="0 0 84 84">
+                  {/* bg ring */}
+                  <circle cx="42" cy="42" r={r} fill="none" stroke="#ffffff10" strokeWidth="7" />
+                  {/* progress ring */}
+                  <circle cx="42" cy="42" r={r} fill="none" stroke={color} strokeWidth="7"
+                    strokeDasharray={circ} strokeDashoffset={dash}
+                    strokeLinecap="round" transform="rotate(-90 42 42)"
+                    style={{ transition: 'stroke-dashoffset 0.6s ease, stroke 0.6s ease' }}
+                  />
+                  <text x="42" y="46" textAnchor="middle" fill="white" fontSize="15" fontWeight="bold">{pct}%</text>
+                </svg>
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-sm font-bold text-white">
+                    {completionTrack?.name || 'Your Track'}
+                  </span>
+                  <span
+                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: color + '22', color }}
+                  >
+                    {stageLabels[trackStage]}
+                  </span>
+                </div>
+
+                {/* Stage dots */}
+                <div className="flex items-center gap-1.5 mb-2">
+                  {stageOrder.map((s, i) => {
+                    const done    = stageOrder.indexOf(trackStage) > i
+                    const current = s === trackStage
+                    return (
+                      <button key={s} onClick={() => setTrackStage(s)}
+                        className="flex items-center gap-1 text-xs transition-all"
+                      >
+                        <div className={`w-2 h-2 rounded-full transition-all ${
+                          done ? 'bg-green-500' : current ? '' : 'bg-gray-700'
+                        }`} style={current ? { background: color } : {}} />
+                        <span className={`hidden sm:inline ${current ? 'text-white font-medium' : done ? 'text-green-600' : 'text-gray-600'}`}>
+                          {stageLabels[s]}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Completion Engine sub-progress */}
+                {inEngine && completionStage <= 5 && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${(completionStage / 5) * 100}%`, background: color }} />
+                    </div>
+                    <span className="text-xs text-gray-500 shrink-0">
+                      Stage {completionStage}/5 · {engineLabels[completionStage]}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* ── HOME SCREEN — only visible when no mode is active ────────────────
               To reorder tools: move the button blocks around inside this fragment.
               To add a new tool: add to MODES[] array AND add a case in buildPrompt().
@@ -1927,53 +2423,26 @@ export default function App() {
         {/* Completion Engine — featured full-width */}
         {/*  Start of button ---------------------------------------------------------------*/}
           <button
-            onClick={() => { resetCompletionSession(); resetMode('completion') }}
+            onClick={() => resetMode('completion')}
             className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
           >
             <div className="flex items-center justify-between">
-              <div>
+              <div className="min-w-0 flex-1">
                 <div className="font-semibold text-lg text-green-300">Finish A Song</div>
-                <div className="text-sm text-gray-400 mt-0.5">Turn your loop or track into a finished track</div>
+                {completionStage > 0 && completionTrack ? (
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-xs bg-green-900/40 border border-green-700/40 text-green-300 px-2 py-0.5 rounded-full font-medium">
+                      ▶ Resume
+                    </span>
+                    <span className="text-sm text-white font-medium truncate">{completionTrack.name}</span>
+                    <span className="text-xs text-gray-500">· Stage {completionStage}/5</span>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-400 mt-0.5">Turn your loop or track into a finished track</div>
+                )}
               </div>
               <div className="text-right shrink-0 ml-3">
-
-                {/* Conditional check on completion history. 
-                    if true then -> finished
-                    if false then -> "5 stages" */}
-                {/* ---------------------------------------------------------------- */}
-                {trackStage != null ? (
-                  <>
-                    <svg width="80" height="80">
-                        {/* background ring — always full, grey */}
-                        <circle
-                          cx="40" cy="40" r="30"
-                          fill="none"
-                          stroke="#374151"
-                          strokeWidth="8"
-                        />
-                        {/* foreground ring — green, fills based on progress */}
-                        <circle
-                          cx="40" cy="40" r="30"
-                          fill="none"
-                          stroke="#22c55e"
-                          strokeWidth="8"
-                          strokeDasharray={2 * Math.PI * 30}
-                          strokeDashoffset={2 * Math.PI * 30 * (1 - STAGE_PROGRESS[trackStage] / 100)}
-                          strokeLinecap="round"
-                          transform="rotate(-90 40 40)"
-                        />
-                        <text x="40" y="45" textAnchor="middle" fill="white" fontSize="12">
-                          {trackStage.replace('_', ' ')} · {STAGE_PROGRESS[trackStage]}%
-                        </text>
-                      </svg>
-                    <div className="text-xs text-green-500 font-bold">🏆 {trackStage}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-xs text-green-700 font-medium">5 stages</div>
-                )}
-                {/*---------------------------------------------------------------- */}
-
+                {completionStage === 0 && <div className="text-xs text-green-700 font-medium">5 stages</div>}
                 <div className="text-2xl opacity-30 mt-0.5">→</div>
               </div>
             </div>
@@ -1982,56 +2451,123 @@ export default function App() {
           {/* End of button ---------------------------------------------------------------*/}
 
 
-          <div className="grid grid-cols-2 gap-3 mb-3"> 
+          {/* Start From Nothing — full-width secondary */}
+          <button
+            onClick={() => resetMode('start')}
+            className="w-full p-5 rounded-xl text-left border border-blue-800/40 bg-blue-950/15 hover:border-blue-600/50 hover:bg-blue-950/25 transition-all mb-3"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg text-blue-300">🎹 Start From Nothing</div>
+                <div className="text-sm text-gray-400 mt-0.5">BPM, key, chords, structure — blank canvas to full direction</div>
+              </div>
+              <div className="text-2xl opacity-30 ml-3">→</div>
+            </div>
+          </button>
+
+          {/* 2-col grid — secondary tools */}
+          <div className="grid grid-cols-2 gap-3 mb-3">
             {MODES.map(m => (
               <button
                 key={m.id}
                 onClick={() => resetMode(m.id)}
-                className={`p-4 rounded-xl text-left border transition-all ${
-                  m.id === 'daw' ? 'col-span-2' : ''
-                } border-gray-800 bg-gray-900 hover:border-gray-600`}
+                className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-gray-600 transition-all"
               >
-                <div className="font-semibold mb-0.5">{m.label}</div>
-                <div className="text-sm text-gray-400">{m.desc}</div>
+                <div className="font-semibold mb-0.5 text-sm">{m.label}</div>
+                <div className="text-xs text-gray-500">{m.desc}</div>
               </button>
             ))}
           </div>
 
-          {/* DJ tools */}
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <button onClick={() => resetMode('dj')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
-              <div className="font-semibold mb-0.5">🎛️ DJ Roadmap</div>
-              <div className="text-sm text-gray-400">Visual journey map to get started</div>
-            </button>
-            <button onClick={() => resetMode('djset')} className="p-4 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all">
-              <div className="font-semibold mb-0.5">📋 DJ Set Planner</div>
-              <div className="text-sm text-gray-400">BPM arc, energy flow & transitions</div>
-            </button>
-          </div>
+          {/* Songs in Progress + Finished Songs — home page widget */}
+          {(inProgressSongs.length > 0 || completionHistory.length > 0) && (
+            <div className="mt-2 rounded-xl border border-gray-800 bg-gray-900 p-4 space-y-4">
 
-          {/* Visual Tools */}
-          <button onClick={() => resetMode('visuals')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">🎨 Visual Tools & VFX</div>
-                <div className="text-sm text-gray-400 mt-0.5">Live visuals, promo content & AI video tools — tailored to your genre and budget</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
+              {inProgressSongs.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    🎛️ In Progress ({inProgressSongs.length})
+                  </div>
+                  <div className="space-y-1.5">
+                    {inProgressSongs.map(s => (
+                      <div
+                        key={s.id}
+                        onClick={() => setPlayerTrack({ name: s.name, bpm: s.track?.bpm, key: s.track?.key, vibe: s.track?.vibe })}
+                        className="flex items-center justify-between bg-gray-800/60 border border-yellow-700/20 rounded-lg px-3 py-2 group cursor-pointer hover:bg-gray-800 transition-colors"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-medium text-white">{s.name}</span>
+                          <span className="text-xs text-yellow-600 ml-2">Stage {s.stage}/5</span>
+                          <span className="text-xs text-gray-600 ml-1">· {s.savedAt}</span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <button
+                            onClick={e => { e.stopPropagation(); handleLoadInProgress(s) }}
+                            className="text-xs bg-green-800/40 hover:bg-green-700/50 border border-green-700/40 text-green-300 px-2 py-1 rounded-lg transition-all"
+                          >
+                            Finish Song →
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); handleDeleteInProgress(s.id) }}
+                            className="text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs leading-none"
+                            title="Delete"
+                          >✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {completionHistory.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      🏆 Finished Songs ({completionHistory.length})
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={historySearch}
+                        onChange={e => setHistorySearch(e.target.value)}
+                        placeholder="Search…"
+                        className="bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-1 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-green-600 w-32"
+                      />
+                      <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    {completionHistory
+                      .filter(t => !historySearch || t.name.toLowerCase().includes(historySearch.toLowerCase()))
+                      .map(t => (
+                      <div
+                        key={t.id}
+                        onClick={() => setPlayerTrack({ name: t.name, bpm: t.bpm, key: t.key, vibe: t.vibe })}
+                        className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 group cursor-pointer hover:bg-gray-700/60 transition-colors"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="text-sm font-medium text-white">{t.name}</span>
+                          <span className="text-xs text-gray-500 ml-2">{t.key} · {t.bpm} BPM</span>
+                          {t.vibe && <span className="text-xs text-gray-600 ml-1">· {t.vibe}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
+                          <span className="text-xs text-green-500">{t.dateFinished}</span>
+                          <button
+                            onClick={e => { e.stopPropagation(); handleDeleteTrack(t.id) }}
+                            className="text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs leading-none"
+                            title="Delete"
+                          >✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          </button>
+          )}
 
-          {/* Release Plan */}
-          <button onClick={() => resetMode('release')} className="w-full p-5 rounded-xl text-left border border-gray-800 bg-gray-900 hover:border-purple-800 hover:bg-purple-950/20 transition-all mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg">🚀 Release Plan</div>
-                <div className="text-sm text-gray-400 mt-0.5">Week-by-week rollout — playlists, content plan & Spotify pitch</div>
-              </div>
-              <div className="text-2xl opacity-30">→</div>
-            </div>
-          </button>
-
-          
         </>)}
 
         {/* ── Active mode — back button shown instead of grid ── */}
@@ -2043,13 +2579,77 @@ export default function App() {
             >
               ← All tools
             </button>
+            {mode === 'completion' && completionStage > 0 && (
+              <button
+                onClick={() => {
+                  const nextStage = completionStage - 1
+                  // Going back to entry screen — save snapshot so track shows in unfinished songs
+                  if (nextStage === 0 && completionTrack) {
+                    const snapshot = {
+                      id: completionTrack.name + '_' + Date.now(),
+                      name: completionTrack.name,
+                      stage: completionStage,
+                      savedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                      track: completionTrack,
+                      input: completionInput,
+                      result: completionResult,
+                      decisions: completionDecisions,
+                      decisionOptions: completionDecisionOptions,
+                      decisionPicks: completionDecisionPicks,
+                      analysis: completionAnalysis,
+                      checklist: completionChecklist,
+                      fileName: completionFile?.name ?? savedFileName ?? null,
+                    }
+                    setInProgressSongs(prev => {
+                      const filtered = prev.filter(s => s.name !== snapshot.name)
+                      return [snapshot, ...filtered]
+                    })
+                  }
+                  setCompletionStage(nextStage)
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-sm text-gray-400 hover:text-white transition-all"
+              >
+                ← Back
+              </button>
+            )}
+            {mode === 'completion' && completionStage > 1 && (
+              <button
+                onClick={() => {
+                  // Save current session to in-progress before returning to engine entry
+                  if (completionTrack) {
+                    const snapshot = {
+                      id: completionTrack.name + '_' + Date.now(),
+                      name: completionTrack.name,
+                      stage: completionStage,
+                      savedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+                      track: completionTrack,
+                      input: completionInput,
+                      result: completionResult,
+                      decisions: completionDecisions,
+                      decisionOptions: completionDecisionOptions,
+                      decisionPicks: completionDecisionPicks,
+                      analysis: completionAnalysis,
+                      checklist: completionChecklist,
+                      fileName: completionFile?.name ?? savedFileName ?? null,
+                    }
+                    setInProgressSongs(prev => {
+                      const filtered = prev.filter(s => s.name !== snapshot.name)
+                      return [snapshot, ...filtered]
+                    })
+                  }
+                  setCompletionStage(0)
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl text-sm text-gray-400 hover:text-white transition-all"
+              >
+                ← Completion Engine
+              </button>
+            )}
             <div className="px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-xl">
               <span className="text-sm font-medium text-purple-300">
                 {[...MODES,
+                  {id:'start',      label:'🎹 Start From Nothing'},
                   {id:'dj',         label:'🎛️ DJ Roadmap'},
                   {id:'djset',      label:'📋 DJ Set Planner'},
-                  {id:'visuals',    label:'🎨 Visual Tools & VFX'},
-                  {id:'release',    label:'🚀 Release Plan'},
                   {id:'stereo',     label:'🌐 Stereo Analyzer'},
                   {id:'completion', label:'✅ Completion Engine'},
                 ].find(m => m.id === mode)?.label || mode}
@@ -2092,9 +2692,20 @@ export default function App() {
             {/* ── STAGE 0 — Entry ── */}
             {completionStage === 0 && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
-                <div>
-                  <h2 className="font-bold text-lg text-white mb-1">✅ Completion Engine</h2>
-                  <p className="text-sm text-gray-400 leading-relaxed">Stop restarting. Turn your loop into a finished track — 5 locked stages, one at a time.</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="font-bold text-lg text-white mb-1">✅ Completion Engine</h2>
+                    <p className="text-sm text-gray-400 leading-relaxed">Stop restarting. Turn your loop into a finished track — 5 locked stages, one at a time.</p>
+                  </div>
+                  {/* Only show if there's a previous session in history — lets user explicitly start fresh */}
+                  {completionHistory.length > 0 && (
+                    <button
+                      onClick={resetCompletionSession}
+                      className="shrink-0 text-xs text-gray-600 hover:text-gray-400 border border-gray-800 hover:border-gray-600 rounded-lg px-2 py-1 transition-all"
+                    >
+                      + New Track
+                    </button>
+                  )}
                 </div>
 
                 <div>
@@ -2159,7 +2770,9 @@ export default function App() {
                   >
                     {completionFile
                       ? <span className="text-green-400 text-sm font-medium">{completionFile.name} ✓</span>
-                      : <span className="text-gray-500 text-sm">{isDragging ? 'Drop it 🎵' : 'Click or drag to upload (MP3, WAV)'}</span>
+                      : savedFileName && !isDragging
+                        ? <span className="text-yellow-500/80 text-sm">↑ Re-upload <span className="font-medium">{savedFileName}</span> to restore audio</span>
+                        : <span className="text-gray-500 text-sm">{isDragging ? 'Drop it 🎵' : 'Click or drag to upload (MP3, WAV)'}</span>
                     }
                   </button>
                   {/* audio playback handled by floating player below */}
@@ -2214,6 +2827,43 @@ export default function App() {
                   Begin Stage 1 →
                 </button>
 
+                {/* Songs in Progress */}
+                {inProgressSongs.length > 0 && (
+                  <div className="pt-3 border-t border-gray-800">
+                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                      🎛️ In Progress ({inProgressSongs.length})
+                    </div>
+                    <div className="space-y-1.5">
+                      {inProgressSongs.map(s => (
+                        <div
+                          key={s.id}
+                          onClick={() => setPlayerTrack({ name: s.name, bpm: s.track?.bpm, key: s.track?.key, vibe: s.track?.vibe })}
+                          className="flex items-center justify-between bg-gray-800/60 border border-yellow-700/20 rounded-lg px-3 py-2 group cursor-pointer hover:bg-gray-800 transition-colors"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <span className="text-sm font-medium text-white">{s.name}</span>
+                            <span className="text-xs text-yellow-600 ml-2">Stage {s.stage}/5</span>
+                            <span className="text-xs text-gray-600 ml-1">· {s.savedAt}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <button
+                              onClick={e => { e.stopPropagation(); handleLoadInProgress(s) }}
+                              className="text-xs bg-green-800/40 hover:bg-green-700/50 border border-green-700/40 text-green-300 px-2 py-1 rounded-lg transition-all"
+                            >
+                              Finish Song →
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); handleDeleteInProgress(s.id) }}
+                              className="text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs leading-none"
+                              title="Delete"
+                            >✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Finished songs list */}
                 {completionHistory.length > 0 && (
                   <div className="pt-3 border-t border-gray-800">
@@ -2238,7 +2888,11 @@ export default function App() {
                       {completionHistory
                         .filter(t => !historySearch || t.name.toLowerCase().includes(historySearch.toLowerCase()))
                         .map(t => (
-                        <div key={t.id} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 group">
+                        <div
+                          key={t.id}
+                          onClick={() => setPlayerTrack({ name: t.name, bpm: t.bpm, key: t.key, vibe: t.vibe })}
+                          className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 group cursor-pointer hover:bg-gray-700/60 transition-colors"
+                        >
                           <div className="min-w-0 flex-1">
                             <span className="text-sm font-medium text-white">{t.name}</span>
                             <span className="text-xs text-gray-500 ml-2">{t.key} · {t.bpm} BPM</span>
@@ -2247,7 +2901,7 @@ export default function App() {
                           <div className="flex items-center gap-2 shrink-0 ml-2">
                             <span className="text-xs text-green-500">{t.dateFinished}</span>
                             <button
-                              onClick={() => handleDeleteTrack(t.id)}
+                              onClick={e => { e.stopPropagation(); handleDeleteTrack(t.id) }}
                               className="text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs leading-none"
                               title="Delete"
                             >✕</button>
@@ -2715,7 +3369,11 @@ export default function App() {
                   </div>
                   <div className="space-y-2">
                     {completionHistory.slice(0, 6).map(t => (
-                      <div key={t.id} className="flex items-center justify-between">
+                      <div
+                        key={t.id}
+                        onClick={() => setPlayerTrack({ name: t.name, bpm: t.bpm, key: t.key, vibe: t.vibe })}
+                        className="flex items-center justify-between cursor-pointer hover:bg-gray-700/40 rounded-lg px-2 py-1 -mx-2 transition-colors"
+                      >
                         <div>
                           <span className="text-sm font-medium text-white">{t.name}</span>
                           <span className="text-xs text-gray-500 ml-2">{t.key} · {t.bpm} BPM</span>
@@ -3081,6 +3739,10 @@ export default function App() {
                     </div>
                   </div>
                 )}
+                {/* Live goniometer — shows as soon as a file is loaded */}
+                {stereoFile && !analysingStereo && (
+                  <GoniometerWidget file={stereoFile} bandData={stereoAnalysis?.bandData} />
+                )}
                 <p className="text-xs text-gray-500">
                   🌐 Analyses L/R frequency content across 7 bands, then maps each band to an instrument and plots it on a 3D stereo field — side by side with the ideal layout for your genre.
                 </p>
@@ -3257,6 +3919,29 @@ export default function App() {
                 <ReactMarkdown>{result}</ReactMarkdown>
               </div>
             )}
+            {/* What's next? — shown after Analyze Sample result */}
+            {result && !loading && mode === 'sample' && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">What do you want to do with this sound?</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => { resetMode('completion') }}
+                    className="p-3 rounded-xl border border-green-800/50 bg-green-950/20 hover:border-green-600/50 hover:bg-green-950/30 transition-all text-left"
+                  >
+                    <div className="text-sm font-semibold text-green-300">✅ Finish A Song</div>
+                    <div className="text-xs text-gray-500 mt-0.5">Use this as the foundation</div>
+                  </button>
+                  <button
+                    onClick={() => resetMode('start')}
+                    className="p-3 rounded-xl border border-blue-800/40 bg-blue-950/15 hover:border-blue-600/40 hover:bg-blue-950/25 transition-all text-left"
+                  >
+                    <div className="text-sm font-semibold text-blue-300">🎹 Start From Nothing</div>
+                    <div className="text-xs text-gray-500 mt-0.5">Build a new direction around it</div>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Follow-up suggestions */}
             {!loading && mode && (FOLLOW_UPS[mode === 'daw' ? (dawMode === 'transition' ? 'transition' : 'daw') : mode]) && (
               <div className="space-y-2">
@@ -3582,7 +4267,7 @@ export default function App() {
       )}
 
       {/* ── Floating audio player ── */}
-      {audioUrl && (
+      {(audioUrl || playerTrack) && (
         <>
           {/* Hidden actual audio element */}
           <audio
@@ -3599,38 +4284,43 @@ export default function App() {
               className="pointer-events-auto border-t border-white/10 shadow-2xl"
               style={{ background: 'rgba(15, 15, 15, 0.98)', backdropFilter: 'blur(32px)' }}
             >
-              {/* Seekable scrubber */}
-              <div className="max-w-3xl mx-auto px-6 pt-3 pb-1">
-                <div
-                  className="w-full h-1 bg-white/10 rounded-full cursor-pointer relative group"
-                  onClick={e => {
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    const pct = (e.clientX - rect.left) / rect.width
-                    if (audioRef.current) audioRef.current.currentTime = pct * audioDuration
-                  }}
-                >
+              {/* Seekable scrubber — only when audio is loaded */}
+              {audioUrl ? (
+                <div className="max-w-3xl mx-auto px-6 pt-3 pb-1">
                   <div
-                    className="h-full rounded-full transition-all duration-75"
-                    style={{
-                      width: `${audioDuration ? (audioCurrentTime / audioDuration) * 100 : 0}%`,
-                      background: 'linear-gradient(90deg, #1DB954, #1ed760)'
+                    className="w-full h-1 bg-white/10 rounded-full cursor-pointer relative group"
+                    onClick={e => {
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const pct = (e.clientX - rect.left) / rect.width
+                      if (audioRef.current) audioRef.current.currentTime = pct * audioDuration
                     }}
-                  />
-                  {/* Scrub handle */}
-                  <div
-                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity -ml-1.5"
-                    style={{ left: `${audioDuration ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
-                  />
+                  >
+                    <div
+                      className="h-full rounded-full transition-all duration-75"
+                      style={{
+                        width: `${audioDuration ? (audioCurrentTime / audioDuration) * 100 : 0}%`,
+                        background: 'linear-gradient(90deg, #1DB954, #1ed760)'
+                      }}
+                    />
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity -ml-1.5"
+                      style={{ left: `${audioDuration ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-xs text-gray-600 font-mono tabular-nums">
+                      {Math.floor(audioCurrentTime / 60)}:{String(Math.floor(audioCurrentTime % 60)).padStart(2, '0')}
+                    </span>
+                    <span className="text-xs text-gray-600 font-mono tabular-nums">
+                      -{Math.floor(Math.max(0, audioDuration - audioCurrentTime) / 60)}:{String(Math.floor(Math.max(0, audioDuration - audioCurrentTime) % 60)).padStart(2, '0')}
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-xs text-gray-600 font-mono tabular-nums">
-                    {Math.floor(audioCurrentTime / 60)}:{String(Math.floor(audioCurrentTime % 60)).padStart(2, '0')}
-                  </span>
-                  <span className="text-xs text-gray-600 font-mono tabular-nums">
-                    -{Math.floor(Math.max(0, audioDuration - audioCurrentTime) / 60)}:{String(Math.floor(Math.max(0, audioDuration - audioCurrentTime) % 60)).padStart(2, '0')}
-                  </span>
+              ) : (
+                <div className="max-w-3xl mx-auto px-6 pt-3 pb-1">
+                  <div className="text-xs text-gray-600 text-center">No audio file loaded — upload a track in the Completion Engine to play</div>
                 </div>
-              </div>
+              )}
 
               <div className="flex items-center gap-3 max-w-3xl mx-auto px-6 pb-3">
                 {/* Left: album art + track name */}
@@ -3645,10 +4335,10 @@ export default function App() {
                   </div>
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-white truncate leading-tight">
-                      {completionFile?.name?.replace(/\.[^/.]+$/, '') || 'Track'}
+                      {playerTrack?.name || completionFile?.name?.replace(/\.[^/.]+$/, '') || 'Track'}
                     </div>
                     <div className="text-xs text-gray-500 truncate leading-tight mt-0.5">
-                      {completionTrack ? `${completionTrack.bpm} BPM · ${completionTrack.key} · ${completionTrack.vibe || ''}` : 'Completion Engine'}
+                      {playerTrack?.bpm ? `${playerTrack.bpm} BPM · ${playerTrack.key || ''} · ${playerTrack.vibe || ''}`.replace(/ · $/, '') : 'Completion Engine'}
                     </div>
                   </div>
                 </div>
@@ -3661,7 +4351,8 @@ export default function App() {
                       if (audioPlaying) { audioRef.current.pause(); setAudioPlaying(false) }
                       else { audioRef.current.play(); setAudioPlaying(true) }
                     }}
-                    className="w-11 h-11 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-xl"
+                    disabled={!audioUrl}
+                    className="w-11 h-11 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-xl disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ background: '#1DB954' }}
                   >
                     {audioPlaying ? (
@@ -3680,7 +4371,7 @@ export default function App() {
                 {/* Right: close */}
                 <div className="flex-1 flex justify-end">
                   <button
-                    onClick={() => { setAudioUrl(null); setAudioPlaying(false); setCompletionFile(null) }}
+                    onClick={() => { setAudioUrl(null); setAudioPlaying(false); setCompletionFile(null); setPlayerTrack(null) }}
                     className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:text-white hover:bg-white/10 transition-all"
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
