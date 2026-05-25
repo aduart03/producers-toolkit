@@ -559,6 +559,14 @@ Rules: Chord list only: ${CHORD_LIST}. Note format: A4 C#3 Bb2 etc. Match the ex
 // ─── Completion Engine — constants ───────────────────────────────────────────
 const COMPLETION_STAGES = ['Lock-In', 'Structure', 'Decisions', 'Feedback', 'Export']
 
+// Stages of song Progress
+const STAGE_PROGRESS = {
+  sound_design: 25,
+  composition: 50,
+  mixing: 75,
+  mastering: 100
+}
+
 const EXPORT_CHECKLIST = [
   'Master bus limiter is on',
   'Exported at 44.1kHz or 48kHz (not 96kHz)',
@@ -569,19 +577,26 @@ const EXPORT_CHECKLIST = [
 
 // ─── Completion Engine — prompt builders ─────────────────────────────────────
 const buildIdeaLockPrompt = (description, audioAnalysis) => {
+  const hasDescription = description && description.trim().length > 0
+  const descriptionBlock = hasDescription
+    ? `Producer's description: "${description.trim()}"`
+    : `Producer's description: (none provided — infer from audio measurements below)`
   const audioBlock = audioAnalysis
-    ? `\nAUDIO MEASUREMENTS: Duration ${audioAnalysis.duration} | ${audioAnalysis.channels} | Peak ${audioAnalysis.peakDb} | Stereo ${audioAnalysis.stereoWidth} | Dominant bands: ${audioAnalysis.bands.filter(b => b.pct > 40).map(b => b.name).join(', ') || 'mid-range'}`
-    : ''
-  return `You are a music production coach. A producer wants to commit to finishing a track. Analyse what they have and write a commitment statement that locks them into this idea — no escape.
+    ? `\nAUDIO MEASUREMENTS (extracted client-side — these are real numbers from the file, not the raw audio):
+  Duration: ${audioAnalysis.duration} | Channels: ${audioAnalysis.channels} | Peak: ${audioAnalysis.peakDb} | Stereo width: ${audioAnalysis.stereoWidth} | Dominant frequency bands: ${audioAnalysis.bands.filter(b => b.pct > 40).map(b => b.name).join(', ') || 'mid-range'}`
+    : `\nNo audio file uploaded.`
+  return `You are a music production coach. A producer wants to commit to finishing a track. Use whatever information is available — description, audio measurements, or both — to write a commitment statement that locks them in.
 
-Their loop/vibe: "${description}"${audioBlock}
+${descriptionBlock}${audioBlock}
+
+Even if the information is limited, make your best inference and commit to a direction. Do NOT ask for more details or explain what you can't do.
 
 Output EXACTLY these lines (no extra text before or after):
-COMMITMENT: [Bold, specific 2-sentence "this is your track" statement. Name the exact genre, energy, and key sonic elements. No generic phrases.]
+COMMITMENT: [Bold, specific 2-sentence statement. Name the exact genre, energy, and key sonic elements. No generic phrases.]
 BPM: [single number — best estimate or suggestion]
 KEY: [musical key and scale, e.g. A minor, F# minor, C major]
 VIBE: [exactly 3 words, e.g. dark paranoid rolling]
-DIRECTION: [One short paragraph — what makes this loop worth finishing. What's working. Why it has real potential. Be direct and honest, not hype.]`
+DIRECTION: [One short paragraph — what makes this worth finishing. Be direct and honest, not hype.]`
 }
 
 const buildStructurePrompt = (commitment, bpm, vibe) => {
@@ -615,16 +630,19 @@ DECISION_1:
 QUESTION: [Direct, specific question — e.g. "Which kick do you keep — the 808-punchy one or the clicky techno one?"]
 OPTION_A: [Concrete specific option]
 OPTION_B: [Different concrete option]
+RECOMMENDED: [A or B — whichever serves this track better, with one short reason]
 
 DECISION_2:
 QUESTION: [Different area — e.g. about arrangement, a sound choice, or energy level]
 OPTION_A: [Specific option]
 OPTION_B: [Different option]
+RECOMMENDED: [A or B — whichever serves this track better, with one short reason]
 
 DECISION_3:
 QUESTION: [Third area — transition, texture, or final element]
 OPTION_A: [Specific option]
 OPTION_B: [Different option]
+RECOMMENDED: [A or B — whichever serves this track better, with one short reason]
 
 Make every decision specific to this genre and BPM. No generic questions like "which direction do you prefer?"`
 }
@@ -671,10 +689,12 @@ const parseForcedDecisions = (text) => {
     const endPattern = i < 3 ? `DECISION_${i + 1}:` : '$'
     const blockRe    = new RegExp(`DECISION_${i}:[\\s\\S]*?(?=${endPattern})`, 'i')
     const block      = text.match(blockRe)?.[0] || ''
-    const question   = block.match(/QUESTION:\s*([^\n]+)/i)?.[1]?.trim()
-    const optionA    = block.match(/OPTION_A:\s*([^\n]+)/i)?.[1]?.trim()
-    const optionB    = block.match(/OPTION_B:\s*([^\n]+)/i)?.[1]?.trim()
-    if (question && optionA && optionB) decisions.push({ question, optionA, optionB })
+    const question    = block.match(/QUESTION:\s*([^\n]+)/i)?.[1]?.trim()
+    const optionA     = block.match(/OPTION_A:\s*([^\n]+)/i)?.[1]?.trim()
+    const optionB     = block.match(/OPTION_B:\s*([^\n]+)/i)?.[1]?.trim()
+    const recRaw      = block.match(/RECOMMENDED:\s*([^\n]+)/i)?.[1]?.trim() || ''
+    const recommended = recRaw.toUpperCase().startsWith('B') ? 'B' : 'A'
+    if (question && optionA && optionB) decisions.push({ question, optionA, optionB, recommended, recommendedReason: recRaw })
   }
   return decisions
 }
@@ -1291,22 +1311,47 @@ export default function App() {
   const [completionDecisions,       setCompletionDecisions]       = useState([])
   const [completionCurrentDecision, setCompletionCurrentDecision] = useState(0)
   const [completionDecisionOptions, setCompletionDecisionOptions] = useState([])
+  const [completionDecisionPicks,   setCompletionDecisionPicks]   = useState({})
   const [completionFile,            setCompletionFile]            = useState(null)
   const [completionAnalysis,        setCompletionAnalysis]        = useState(null)
   const [completionChecklist,       setCompletionChecklist]       = useState([false,false,false,false,false])
   const [completionShowCelebration, setCompletionShowCelebration] = useState(false)
+  const [showDescription,           setShowDescription]           = useState(false)
+  const [isDragging,                setIsDragging]                = useState(false)
+  const [completionError,           setCompletionError]           = useState('')
   const [completionTrackName,       setCompletionTrackName]       = useState('')
+  const [historySearch,             setHistorySearch]             = useState('')
   const [completionHistory,         setCompletionHistory]         = useState(() => {
     try { return JSON.parse(localStorage.getItem('completionHistory') || '[]') } catch { return [] }
   })
+
+  const [trackStage, setTrackStage] = useState( 
+    ()=> {
+      try{return JSON.parse(localStorage.getItem('trackStage')) // will track null if nothing saved
+      }catch{return null}
+    }
+  )
+  // Completion constants
+  const circumference = 2 * Math.PI * 40  
+  const progress = STAGE_PROGRESS[trackStage] ?? 0  // e.g. 75
+  const offset = circumference * (1 - progress / 100)
+
+
   const completionFileRef = useRef(null)
+  const audioRef          = useRef(null)
+  const [audioPlaying,     setAudioPlaying]     = useState(false)
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0)
+  const [audioDuration,    setAudioDuration]    = useState(0)
+  const [audioUrl,         setAudioUrl]         = useState(null)
 
   const [chordHistory, setChordHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem('chordHistory') || '[]') } catch { return [] }
   })
+
   useEffect(() => {
     localStorage.setItem('chordHistory', JSON.stringify(chordHistory))
   }, [chordHistory])
+
   useEffect(() => {
     localStorage.setItem('completionHistory', JSON.stringify(completionHistory))
   }, [completionHistory])
@@ -1334,6 +1379,31 @@ export default function App() {
     }
     return () => clearInterval(loadingTimerRef.current)
   }, [loading, mode])
+
+  // Track Stage: persist stage
+  useEffect(() => {
+    localStorage.setItem('trackStage', JSON.stringify(trackStage))
+  }, [trackStage])
+
+  // ── Audio player: create blob URL when file is set. Don't destroy on session reset — player stays alive until user dismisses it.
+  useEffect(() => {
+    if (!completionFile) return
+    const url = URL.createObjectURL(completionFile)
+    setAudioUrl(url)
+    setAudioCurrentTime(0)
+    return () => URL.revokeObjectURL(url)
+  }, [completionFile])
+
+  // ── Enter key to submit on Completion Engine entry screen ──
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Enter' && completionStage === 0 && mode === 'completion' && !completionLoading) {
+        handleBeginCompletion()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [completionStage, mode, completionLoading, completionFile, completionInput, trackStage])
 
   // ── Handle file selection ──
   const handleFileSelect = async (file) => {
@@ -1548,7 +1618,15 @@ export default function App() {
 
   // Stage 0 → 1: Begin — run idea lock AI
   const handleBeginCompletion = async () => {
-    if (!completionInput.trim()) return
+    if (!completionFile && !completionInput.trim()) {
+      setCompletionError('Upload a file or add a description to continue.')
+      return
+    }
+    if (!trackStage) {
+      setCompletionError('Choose a stage before proceeding.')
+      return
+    }
+    setCompletionError('')
     setCompletionStage(1)
     setCompletionLoading(true)
     setCompletionResult('')
@@ -1559,7 +1637,9 @@ export default function App() {
       await callAI([{ role: 'user', content: prompt }], (chunk) => { text += chunk })
       const parsed = parseIdeaLock(text)
       if (parsed) {
-        setCompletionTrack({ name: completionTrackName.trim() || 'Untitled Track', ...parsed })
+        const untitledCount = completionHistory.filter(t => t.name.startsWith('Untitled')).length
+        const autoName = completionTrackName.trim() || `Untitled ${untitledCount + 1}`
+        setCompletionTrack({ name: autoName, ...parsed })
         setCompletionResult(text)
       } else {
         setCompletionResult(text || 'Could not parse response — try again.')
@@ -1628,6 +1708,21 @@ export default function App() {
     } finally {
       setCompletionLoading(false)
     }
+  }
+
+  // Stage 3: commit selected decisions (auto-pick recommended if skipped) and move to stage 4
+  const handleCommitDecisions = () => {
+    const entries = completionDecisionOptions.map((opt, i) => {
+      const picked = completionDecisionPicks[i]
+      if (picked) return `${opt.question} → ${picked}`
+      // fallback: use AI's recommended option
+      const fallback = opt.recommended === 'B' ? opt.optionB : opt.optionA
+      return `${opt.question} → ${fallback} (AI pick)`
+    })
+    setCompletionDecisions(entries)
+    setCompletionStage(4)
+    setCompletionResult('')
+    setCompletionInput('')
   }
 
   // Stage 3: Confirm one decision, advance or move to stage 4
@@ -1700,6 +1795,10 @@ export default function App() {
   // Stage 6 → start new
   const handleCompletionNewTrack = () => {
     resetCompletionSession()
+  }
+
+  const handleDeleteTrack = (id) => {
+    setCompletionHistory(prev => prev.filter(t => t.id !== id))
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1822,7 +1921,67 @@ export default function App() {
               To add a new tool: add to MODES[] array AND add a case in buildPrompt().
               To remove a tool: delete its button block here (MODES[] entry optional).
         ── */}
+        
         {!mode && (<>
+
+        {/* Completion Engine — featured full-width */}
+        {/*  Start of button ---------------------------------------------------------------*/}
+          <button
+            onClick={() => { resetCompletionSession(); resetMode('completion') }}
+            className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-lg text-green-300">Finish A Song</div>
+                <div className="text-sm text-gray-400 mt-0.5">Turn your loop or track into a finished track</div>
+              </div>
+              <div className="text-right shrink-0 ml-3">
+
+                {/* Conditional check on completion history. 
+                    if true then -> finished
+                    if false then -> "5 stages" */}
+                {/* ---------------------------------------------------------------- */}
+                {trackStage != null ? (
+                  <>
+                    <svg width="80" height="80">
+                        {/* background ring — always full, grey */}
+                        <circle
+                          cx="40" cy="40" r="30"
+                          fill="none"
+                          stroke="#374151"
+                          strokeWidth="8"
+                        />
+                        {/* foreground ring — green, fills based on progress */}
+                        <circle
+                          cx="40" cy="40" r="30"
+                          fill="none"
+                          stroke="#22c55e"
+                          strokeWidth="8"
+                          strokeDasharray={2 * Math.PI * 30}
+                          strokeDashoffset={2 * Math.PI * 30 * (1 - STAGE_PROGRESS[trackStage] / 100)}
+                          strokeLinecap="round"
+                          transform="rotate(-90 40 40)"
+                        />
+                        <text x="40" y="45" textAnchor="middle" fill="white" fontSize="12">
+                          {trackStage.replace('_', ' ')} · {STAGE_PROGRESS[trackStage]}%
+                        </text>
+                      </svg>
+                    <div className="text-xs text-green-500 font-bold">🏆 {trackStage}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-green-700 font-medium">5 stages</div>
+                )}
+                {/*---------------------------------------------------------------- */}
+
+                <div className="text-2xl opacity-30 mt-0.5">→</div>
+              </div>
+            </div>
+          </button>
+
+          {/* End of button ---------------------------------------------------------------*/}
+
+
           <div className="grid grid-cols-2 gap-3 mb-3"> 
             {MODES.map(m => (
               <button
@@ -1836,27 +1995,6 @@ export default function App() {
                 <div className="text-sm text-gray-400">{m.desc}</div>
               </button>
             ))}
-
-            {/* Completion Engine — featured full-width */}
-          <button
-            onClick={() => { resetCompletionSession(); resetMode('completion') }}
-            className="w-full p-5 rounded-xl text-left border border-green-800/50 bg-green-950/20 hover:border-green-600/60 hover:bg-green-950/30 transition-all mb-3"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-lg text-green-300">✅ Completion Engine</div>
-                <div className="text-sm text-gray-400 mt-0.5">Turn your loop into a finished track — 5 guided stages, no escape hatches</div>
-              </div>
-              <div className="text-right shrink-0 ml-3">
-                {completionHistory.length > 0 ? (
-                  <div className="text-xs text-green-500 font-bold">🏆 {completionHistory.length} finished</div>
-                ) : (
-                  <div className="text-xs text-green-700 font-medium">5 stages</div>
-                )}
-                <div className="text-2xl opacity-30 mt-0.5">→</div>
-              </div>
-            </div>
-          </button>
           </div>
 
           {/* DJ tools */}
@@ -1969,15 +2107,24 @@ export default function App() {
                   />
                 </div>
 
+                {/* Optional Description of song */}
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1.5">Describe your loop or current idea</label>
-                  <textarea
-                    value={completionInput}
-                    onChange={e => setCompletionInput(e.target.value)}
-                    placeholder="e.g. 4-bar UK garage loop, rolling 808 bassline, Em chord pad, 130 BPM. Got the drop but no arrangement yet. Feels dark and late-night. Keep starting over on this one…"
-                    rows={3}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-600 focus:outline-none focus:border-green-600 resize-none text-sm"
-                  />
+                  <button
+                    onClick={() => setShowDescription(!showDescription)}
+                    className="text-xs text-gray-400 hover:text-gray-300 transition-colors mb-2"
+                  >
+                    + Add description {showDescription ? '▲' : '▼'}
+                  </button>
+                  {showDescription && (
+                    <textarea
+                      value={completionInput}
+                      onChange={e => setCompletionInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleBeginCompletion() } }}
+                      placeholder="e.g. 4-bar UK garage loop, rolling 808 bassline, Em chord pad, 130 BPM. Got the drop but no arrangement yet. Feels dark and late-night. Keep starting over on this one…"
+                      rows={3}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-white placeholder-gray-600 focus:outline-none focus:border-green-600 resize-none text-sm"
+                    />
+                  )}
                 </div>
 
                 <div>
@@ -1994,21 +2141,75 @@ export default function App() {
                   />
                   <button
                     onClick={() => completionFileRef.current?.click()}
+                    onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={async e => {
+                      e.preventDefault()
+                      setIsDragging(false)
+                      const f = e.dataTransfer.files[0]
+                      if (!f) return
+                      setCompletionFile(f)
+                      try { const a = await analyzeAudioFile(f); setCompletionAnalysis(a) } catch {}
+                    }}
                     className={`w-full p-3 rounded-xl border-2 border-dashed transition-colors text-center ${
-                      completionFile ? 'border-green-600/60 bg-green-950/20' : 'border-gray-700 bg-gray-800/50 hover:border-gray-600'
+                      isDragging ? 'border-green-400 bg-green-950/30' :
+                      completionFile ? 'border-green-600/60 bg-green-950/20' :
+                      'border-gray-700 bg-gray-800/50 hover:border-gray-600'
                     }`}
                   >
                     {completionFile
                       ? <span className="text-green-400 text-sm font-medium">{completionFile.name} ✓</span>
-                      : <span className="text-gray-500 text-sm">Click to upload (MP3, WAV)</span>
+                      : <span className="text-gray-500 text-sm">{isDragging ? 'Drop it 🎵' : 'Click or drag to upload (MP3, WAV)'}</span>
                     }
+                  </button>
+                  {/* audio playback handled by floating player below */}
+                </div>
+
+                <div>
+                  {/*stage 1 - Sound Design*/ }
+                  <button onClick={() => setTrackStage('sound_design')}
+                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+                      trackStage === 'sound_design' ? 'border-green-500 bg-green-900/30 text-green-300' : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                   Sound Design · 25%
+                  </button>
+
+                  {/*stage 2 - Composition */ }
+                  <button onClick={() => setTrackStage('composition')}
+                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+                      trackStage === 'composition' ? 'border-green-500 bg-green-900/30 text-green-300' : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                    Composition · 50%
+                  </button>
+
+                  {/*stage 3 - Mixing */ }
+                  <button onClick={() => setTrackStage('mixing')}
+                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+                      trackStage === 'mixing'? 'border-green-500 bg-green-900/30 text-green-300' : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                    Mixing · 75%
+                  </button>
+
+                  {/* Stage 4 Mastering - */ }
+                  <button onClick={() => setTrackStage('mastering')}
+                    className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
+                      trackStage === 'mastering' ? 'border-green-500 bg-green-900/30 text-green-300' : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                    Mastering · 100%
                   </button>
                 </div>
 
+                {completionError && (
+                  <div className="text-red-400 text-sm text-center py-2">{completionError}</div>
+                )}
+
                 <button
                   onClick={handleBeginCompletion}
-                  disabled={!completionInput.trim()}
-                  className="w-full py-3 bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl font-bold text-white transition-all"
+                  className="w-full py-3 bg-green-700 hover:bg-green-600 rounded-xl font-bold text-white transition-all"
                 >
                   Begin Stage 1 →
                 </button>
@@ -2016,18 +2217,41 @@ export default function App() {
                 {/* Finished songs list */}
                 {completionHistory.length > 0 && (
                   <div className="pt-3 border-t border-gray-800">
-                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-                      🏆 Finished Songs ({completionHistory.length})
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                        🏆 Finished Songs ({completionHistory.length})
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={historySearch}
+                          onChange={e => setHistorySearch(e.target.value)}
+                          placeholder="Search…"
+                          className="bg-gray-800 border border-gray-700 rounded-lg pl-7 pr-3 py-1 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-green-600 w-32"
+                        />
+                        <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                        </svg>
+                      </div>
                     </div>
                     <div className="space-y-1.5">
-                      {completionHistory.map(t => (
-                        <div key={t.id} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2">
-                          <div>
+                      {completionHistory
+                        .filter(t => !historySearch || t.name.toLowerCase().includes(historySearch.toLowerCase()))
+                        .map(t => (
+                        <div key={t.id} className="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 group">
+                          <div className="min-w-0 flex-1">
                             <span className="text-sm font-medium text-white">{t.name}</span>
                             <span className="text-xs text-gray-500 ml-2">{t.key} · {t.bpm} BPM</span>
                             {t.vibe && <span className="text-xs text-gray-600 ml-1">· {t.vibe}</span>}
                           </div>
-                          <span className="text-xs text-green-500 shrink-0 ml-2">{t.dateFinished}</span>
+                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <span className="text-xs text-green-500">{t.dateFinished}</span>
+                            <button
+                              onClick={() => handleDeleteTrack(t.id)}
+                              className="text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs leading-none"
+                              title="Delete"
+                            >✕</button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2059,18 +2283,27 @@ export default function App() {
                     <div className="bg-purple-900/20 border border-purple-500/30 rounded-xl p-4">
                       <div className="text-xs font-semibold text-purple-300 uppercase tracking-wider mb-2">This is your track</div>
                       <p className="text-white font-medium leading-relaxed text-sm">{completionTrack.commitment}</p>
-                      <div className="flex gap-5 mt-3">
-                        <div>
-                          <div className="text-xs text-gray-500">BPM</div>
-                          <div className="text-sm font-bold text-purple-300">{completionTrack.bpm}</div>
+                      <div className="flex gap-3 mt-3 flex-wrap">
+                        <div className="bg-purple-900/30 rounded-lg px-3 py-2 flex items-center gap-2">
+                          <span>🥁</span>
+                          <div>
+                            <div className="text-xs text-gray-500">BPM</div>
+                            <div className="text-sm font-bold text-purple-300">{completionTrack.bpm}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-xs text-gray-500">Key</div>
-                          <div className="text-sm font-bold text-purple-300">{completionTrack.key}</div>
+                        <div className="bg-purple-900/30 rounded-lg px-3 py-2 flex items-center gap-2">
+                          <span>🎹</span>
+                          <div>
+                            <div className="text-xs text-gray-500">Key</div>
+                            <div className="text-sm font-bold text-purple-300">{completionTrack.key}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-xs text-gray-500">Vibe</div>
-                          <div className="text-sm font-bold text-purple-300">{completionTrack.vibe}</div>
+                        <div className="bg-purple-900/30 rounded-lg px-3 py-2 flex items-center gap-2">
+                          <span>🌡️</span>
+                          <div>
+                            <div className="text-xs text-gray-500">Vibe</div>
+                            <div className="text-sm font-bold text-purple-300">{completionTrack.vibe}</div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2128,18 +2361,79 @@ export default function App() {
 
                 {completionResult && !completionLoading && (
                   <div className="space-y-3">
-                    {completionTrack?.structure && (
-                      <div className="bg-gray-800 rounded-xl p-4">
-                        <div className="text-xs font-semibold text-purple-300 uppercase tracking-wider mb-2">Arrangement</div>
-                        <pre className="text-sm text-gray-200 whitespace-pre-wrap font-mono leading-relaxed">{completionTrack.structure}</pre>
-                      </div>
-                    )}
-                    {completionTrack?.structureTips && (
-                      <div className="bg-gray-800 rounded-xl p-4">
-                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">FL Studio Tips</div>
-                        <p className="text-sm text-gray-300 leading-relaxed">{completionTrack.structureTips}</p>
-                      </div>
-                    )}
+                    {completionTrack?.structure && (() => {
+                      const SECTION_ICONS = {
+                        intro: { icon: '🌅', color: 'border-blue-700/40 bg-blue-900/20', label: 'text-blue-300' },
+                        build: { icon: '📈', color: 'border-yellow-700/40 bg-yellow-900/20', label: 'text-yellow-300' },
+                        drop: { icon: '💥', color: 'border-red-700/40 bg-red-900/20', label: 'text-red-300' },
+                        breakdown: { icon: '🌊', color: 'border-cyan-700/40 bg-cyan-900/20', label: 'text-cyan-300' },
+                        bridge: { icon: '🌉', color: 'border-indigo-700/40 bg-indigo-900/20', label: 'text-indigo-300' },
+                        outro: { icon: '🌙', color: 'border-gray-600/40 bg-gray-800/60', label: 'text-gray-400' },
+                        verse: { icon: '📝', color: 'border-green-700/40 bg-green-900/20', label: 'text-green-300' },
+                        chorus: { icon: '🎤', color: 'border-pink-700/40 bg-pink-900/20', label: 'text-pink-300' },
+                        total: { icon: '⏱️', color: 'border-purple-700/40 bg-purple-900/20', label: 'text-purple-300' },
+                      }
+                      const lines = completionTrack.structure.split('\n').filter(l => l.trim())
+                      return (
+                        <div>
+                          <div className="text-xs font-semibold text-purple-300 uppercase tracking-wider mb-2">Arrangement</div>
+                          <div className="space-y-2">
+                            {lines.map((line, i) => {
+                              const colonIdx = line.indexOf(':')
+                              if (colonIdx === -1) return <p key={i} className="text-xs text-gray-500">{line}</p>
+                              const sectionName = line.slice(0, colonIdx).trim()
+                              const detail = line.slice(colonIdx + 1).trim()
+                              const key = sectionName.toLowerCase().replace(/\s+\d+$/, '').replace(/drop \d/i, 'drop')
+                              const style = SECTION_ICONS[key] || { icon: '🎵', color: 'border-gray-700 bg-gray-800', label: 'text-gray-300' }
+                              return (
+                                <div key={i} className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${style.color}`}>
+                                  <span className="text-lg mt-0.5">{style.icon}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className={`text-xs font-bold uppercase tracking-wider ${style.label}`}>{sectionName}</div>
+                                    <div className="text-sm text-gray-300 mt-0.5 leading-snug">{detail}</div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    {completionTrack?.structureTips && (() => {
+                      const TIP_ICONS = ['🎛️', '🔊', '🎚️']
+                      const TIP_COLORS = [
+                        'border-purple-700/40 bg-purple-900/20',
+                        'border-blue-700/40 bg-blue-900/20',
+                        'border-green-700/40 bg-green-900/20',
+                      ]
+                      // split on "1." / "2." / "3." at start of a segment
+                      const raw = completionTrack.structureTips
+                      const tipLines = raw.split(/(?=\d+\.\s+\*\*)|(?=\d+\.\s+[A-Z])/).filter(t => t.trim())
+                      return (
+                        <div>
+                          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">FL Studio Tips</div>
+                          <div className="space-y-2">
+                            {tipLines.map((tip, i) => {
+                              // strip leading "1. " number
+                              const clean = tip.replace(/^\d+\.\s*/, '')
+                              // pull out bold title if present: **Title**: rest
+                              const titleMatch = clean.match(/^\*\*(.+?)\*\*[:\s–-]*(.*)$/s)
+                              const title = titleMatch ? titleMatch[1] : null
+                              const body  = titleMatch ? titleMatch[2].trim() : clean.trim()
+                              return (
+                                <div key={i} className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${TIP_COLORS[i] || 'border-gray-700 bg-gray-800'}`}>
+                                  <span className="text-lg mt-0.5">{TIP_ICONS[i] || '💡'}</span>
+                                  <div>
+                                    {title && <div className="text-xs font-bold text-white uppercase tracking-wide mb-1">{title}</div>}
+                                    <p className="text-sm text-gray-300 leading-relaxed">{body}</p>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
                     <button
                       onClick={handleConfirmStructure}
                       className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
@@ -2197,41 +2491,43 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Current decision card */}
-                {completionDecisionOptions.length > 0 && completionCurrentDecision < completionDecisionOptions.length && (
+                {/* Decision cards — all shown at once, all optional */}
+                {completionDecisionOptions.length > 0 && (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">Decision</span>
-                      <div className="flex gap-1">
-                        {completionDecisionOptions.map((_, i) => (
-                          <div key={i} className={`w-2 h-2 rounded-full ${
-                            i < completionCurrentDecision ? 'bg-green-500' :
-                            i === completionCurrentDecision ? 'bg-purple-400' : 'bg-gray-700'
-                          }`} />
-                        ))}
+                    <p className="text-xs text-gray-500">Pick any you want — all optional. Run Feedback when ready.</p>
+                    {completionDecisionOptions.map((opt, i) => (
+                      <div key={i} className="bg-yellow-900/20 border border-yellow-700/40 rounded-xl p-4">
+                        <p className="text-sm font-semibold text-yellow-100 mb-3 leading-snug">{opt.question}</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {[{ label: opt.optionA, side: 'A' }, { label: opt.optionB, side: 'B' }].map(({ label, side }) => {
+                            const isRec = opt.recommended === side
+                            const isPicked = completionDecisionPicks[i] === label
+                            return (
+                              <button
+                                key={side}
+                                onClick={() => setCompletionDecisionPicks(p => ({ ...p, [i]: p[i] === label ? null : label }))}
+                                className={`relative p-3 border rounded-xl text-sm font-medium text-left transition-all leading-snug ${
+                                  isPicked
+                                    ? side === 'A' ? 'bg-purple-600/60 border-purple-400 text-white' : 'bg-blue-600/60 border-blue-400 text-white'
+                                    : side === 'A' ? 'bg-purple-700/20 hover:bg-purple-600/40 border-purple-500/30 text-gray-300' : 'bg-blue-700/20 hover:bg-blue-600/40 border-blue-500/30 text-gray-300'
+                                }`}
+                              >
+                                {isRec && (
+                                  <span className="absolute -top-2 left-2 text-xs bg-green-600 text-white px-1.5 py-0.5 rounded-full font-bold">AI pick</span>
+                                )}
+                                {label}
+                              </button>
+                            )
+                          })}
+                        </div>
                       </div>
-                      <span className="text-xs text-gray-600">{completionCurrentDecision + 1} of {completionDecisionOptions.length}</span>
-                    </div>
-                    <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-xl p-4">
-                      <p className="text-sm font-semibold text-yellow-100 mb-4 leading-snug">
-                        {completionDecisionOptions[completionCurrentDecision].question}
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => handleConfirmDecision(completionDecisionOptions[completionCurrentDecision].optionA)}
-                          className="p-3 bg-purple-700/40 hover:bg-purple-600/60 border border-purple-500/40 rounded-xl text-sm text-white font-medium text-left transition-all leading-snug"
-                        >
-                          {completionDecisionOptions[completionCurrentDecision].optionA}
-                        </button>
-                        <button
-                          onClick={() => handleConfirmDecision(completionDecisionOptions[completionCurrentDecision].optionB)}
-                          className="p-3 bg-blue-700/30 hover:bg-blue-600/50 border border-blue-500/30 rounded-xl text-sm text-white font-medium text-left transition-all leading-snug"
-                        >
-                          {completionDecisionOptions[completionCurrentDecision].optionB}
-                        </button>
-                      </div>
-                      <p className="text-xs text-gray-600 mt-2 text-center">Pick one. It's permanent.</p>
-                    </div>
+                    ))}
+                    <button
+                      onClick={handleCommitDecisions}
+                      className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
+                    >
+                      🎯 Run Feedback Pass →
+                    </button>
                   </div>
                 )}
               </div>
@@ -2294,20 +2590,36 @@ export default function App() {
                   <div className="space-y-3">
                     {completionTrack?.feedback && completionTrack.feedback.length > 0 ? (
                       <>
-                        {completionTrack.feedback.map((item, i) => (
-                          <div key={i} className={`rounded-xl p-4 border ${
-                            i === 0 ? 'bg-red-900/20 border-red-700/40' :
-                            i === 1 ? 'bg-yellow-900/20 border-yellow-700/40' :
-                                      'bg-gray-800 border-gray-700'
-                          }`}>
-                            <div className={`text-xs font-semibold uppercase tracking-wider mb-1.5 ${
-                              i === 0 ? 'text-red-400' : i === 1 ? 'text-yellow-400' : 'text-gray-400'
+                        {completionTrack.feedback.map((item, i) => {
+                          const text = item.toLowerCase()
+                          const prodIcon =
+                            text.includes('kick')                          ? '🥁' :
+                            text.includes('bass') || text.includes('808') ? '🎸' :
+                            text.includes('synth') || text.includes('pad') || text.includes('chord') ? '🎹' :
+                            text.includes('vocal') || text.includes('vox') ? '🎤' :
+                            text.includes('hi-hat') || text.includes('hihat') || text.includes('hat') ? '🔔' :
+                            text.includes('snare') || text.includes('clap')  ? '👏' :
+                            text.includes('reverb') || text.includes('delay') || text.includes('fx') ? '🌊' :
+                            text.includes('mix') || text.includes('eq') || text.includes('compress') ? '🎚️' :
+                            text.includes('master') || text.includes('loud') ? '📻' :
+                            text.includes('arrangement') || text.includes('structure') || text.includes('section') ? '🗺️' :
+                            i === 0 ? '🔴' : i === 1 ? '🟡' : '⚪'
+                          return (
+                            <div key={i} className={`rounded-xl p-4 border ${
+                              i === 0 ? 'bg-red-900/20 border-red-700/40' :
+                              i === 1 ? 'bg-yellow-900/20 border-yellow-700/40' :
+                                        'bg-gray-800 border-gray-700'
                             }`}>
-                              {i === 0 ? '🔴 Critical fix' : i === 1 ? '🟡 Important fix' : '⚪ Nice to have'}
+                              <div className={`text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-1.5 ${
+                                i === 0 ? 'text-red-400' : i === 1 ? 'text-yellow-400' : 'text-gray-400'
+                              }`}>
+                                <span>{prodIcon}</span>
+                                {i === 0 ? 'Critical fix' : i === 1 ? 'Important fix' : 'Nice to have'}
+                              </div>
+                              <p className="text-sm text-white leading-relaxed">{item}</p>
                             </div>
-                            <p className="text-sm text-white leading-relaxed">{item}</p>
-                          </div>
-                        ))}
+                          )
+                        })}
                         <button
                           onClick={handleMoveToExport}
                           className="w-full py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold text-white transition-all"
@@ -3267,6 +3579,122 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Floating audio player ── */}
+      {audioUrl && (
+        <>
+          {/* Hidden actual audio element */}
+          <audio
+            ref={audioRef}
+            src={audioUrl}
+            onTimeUpdate={() => setAudioCurrentTime(audioRef.current?.currentTime || 0)}
+            onLoadedMetadata={() => setAudioDuration(audioRef.current?.duration || 0)}
+            onEnded={() => setAudioPlaying(false)}
+          />
+
+          {/* Spotify-style bottom bar */}
+          <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none">
+            <div
+              className="pointer-events-auto border-t border-white/10 shadow-2xl"
+              style={{ background: 'rgba(15, 15, 15, 0.98)', backdropFilter: 'blur(32px)' }}
+            >
+              {/* Seekable scrubber */}
+              <div className="max-w-3xl mx-auto px-6 pt-3 pb-1">
+                <div
+                  className="w-full h-1 bg-white/10 rounded-full cursor-pointer relative group"
+                  onClick={e => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const pct = (e.clientX - rect.left) / rect.width
+                    if (audioRef.current) audioRef.current.currentTime = pct * audioDuration
+                  }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-75"
+                    style={{
+                      width: `${audioDuration ? (audioCurrentTime / audioDuration) * 100 : 0}%`,
+                      background: 'linear-gradient(90deg, #1DB954, #1ed760)'
+                    }}
+                  />
+                  {/* Scrub handle */}
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity -ml-1.5"
+                    style={{ left: `${audioDuration ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
+                  />
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-xs text-gray-600 font-mono tabular-nums">
+                    {Math.floor(audioCurrentTime / 60)}:{String(Math.floor(audioCurrentTime % 60)).padStart(2, '0')}
+                  </span>
+                  <span className="text-xs text-gray-600 font-mono tabular-nums">
+                    -{Math.floor(Math.max(0, audioDuration - audioCurrentTime) / 60)}:{String(Math.floor(Math.max(0, audioDuration - audioCurrentTime) % 60)).padStart(2, '0')}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 max-w-3xl mx-auto px-6 pb-3">
+                {/* Left: album art + track name */}
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div
+                    className="w-11 h-11 rounded-xl shrink-0 flex items-center justify-center shadow-lg"
+                    style={{ background: 'linear-gradient(135deg, #1DB954 0%, #0a3d1f 100%)' }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                      <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/>
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-white truncate leading-tight">
+                      {completionFile?.name?.replace(/\.[^/.]+$/, '') || 'Track'}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate leading-tight mt-0.5">
+                      {completionTrack ? `${completionTrack.bpm} BPM · ${completionTrack.key} · ${completionTrack.vibe || ''}` : 'Completion Engine'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Center: play/pause with SVG icons */}
+                <div className="shrink-0">
+                  <button
+                    onClick={() => {
+                      if (!audioRef.current) return
+                      if (audioPlaying) { audioRef.current.pause(); setAudioPlaying(false) }
+                      else { audioRef.current.play(); setAudioPlaying(true) }
+                    }}
+                    className="w-11 h-11 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-transform shadow-xl"
+                    style={{ background: '#1DB954' }}
+                  >
+                    {audioPlaying ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="black">
+                        <rect x="6" y="4" width="4" height="16" rx="1"/>
+                        <rect x="14" y="4" width="4" height="16" rx="1"/>
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="black">
+                        <polygon points="5,3 19,12 5,21"/>
+                      </svg>
+                    )}
+                  </button>
+                </div>
+
+                {/* Right: close */}
+                <div className="flex-1 flex justify-end">
+                  <button
+                    onClick={() => { setAudioUrl(null); setAudioPlaying(false); setCompletionFile(null) }}
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:text-white hover:bg-white/10 transition-all"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Spacer so content isn't hidden behind the player */}
+          <div className="h-24" />
+        </>
       )}
 
     </div>
